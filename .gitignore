@@ -1,0 +1,23 @@
+# ビルド成果物
+/target/
+
+# 生成されたレポート（個人の作業ログ・内省を含むため公開しない）
+reports/*.md
+!reports/.gitkeep
+
+# コレクター一時ファイル
+/tmp/nippo-*.json
+
+# エディタ・OS
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# 環境変数・秘密情報
+.env
+.env.*
+*.pem
+*.key
