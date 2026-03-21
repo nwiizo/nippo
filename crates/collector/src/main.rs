@@ -22,7 +22,28 @@ enum OutputFormat {
 #[command(
     name = "nippo",
     version,
-    about = "Claude Code session collector for daily reports"
+    about = "Claude Code session collector for daily reports",
+    long_about = "\
+Claude Code の JSONL セッションログを収集・集計するツール。
+Claude Code スキル（/nippo）のデータ収集バックエンドとして動作する。
+
+単体でも使える:
+  nippo collect --format summary          今日のサマリー
+  nippo collect --days 7 --format summary 過去7日のサマリー
+  nippo collect --period last-week        先週のデータ
+  nippo collect --project myapp           プロジェクトで絞り込み
+
+スキルと組み合わせて使う:
+  /nippo              日報（事実 + 意思決定 + 用語レビュー）
+  /nippo reflection   問いのみ（自分で振り返る）
+  /nippo guide        回答 + 学ぶべき概念
+  /nippo report       上司・メンター向け進捗報告
+  /nippo review       評価面談・自己評価用
+  /nippo insight      深い振り返り（ALACT モデル）
+  /nippo trend 90     三分割変化分析
+
+https://github.com/nwiizo/nippo",
+    after_help = "詳細: https://github.com/nwiizo/nippo"
 )]
 struct Cli {
     #[command(subcommand)]
