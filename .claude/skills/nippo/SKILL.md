@@ -13,19 +13,28 @@ context: fork
 
 **最初に必ず `$ARGUMENTS` を確認し、モードと期間を決定してから処理を開始すること。**
 
-`$ARGUMENTS` の値: `$ARGUMENTS`
+### 引数の判定
 
-上記の値を以下のルールで解析する:
-- `insight 30` → **insight モード、30日間**（日報ではない）
-- `reflection` → **reflection モード**（日報ではない）
-- `guide 5` → **guide モード、5日間**（日報ではない）
-- `report` → **report モード、7日間**（日報ではない）
-- `review` → **review モード、90日間**（日報ではない）
-- `trend 90` → **trend モード、90日間**（日報ではない）
-- `brief` → **brief モード**（日報ではない）
-- `(空)` → **日報モード、1日間**
+`$ARGUMENTS` の値を確認する。
 
-**引数がある場合はデフォルトの日報モードで実行してはならない。**
+**判定手順:**
+1. `$ARGUMENTS` が空文字列、または空白のみ → **日報モード（`--days 1`）**
+2. `$ARGUMENTS` の先頭の単語が以下のいずれかに一致するか確認する:
+   - `brief` → **brief モード**
+   - `reflection` → **reflection モード**
+   - `guide` → **guide モード**
+   - `report` → **report モード**
+   - `review` → **review モード**
+   - `insight` → **insight モード**
+   - `trend` → **trend モード**
+3. 先頭の単語が上記に一致しない場合 → **日報モード**（数値があれば期間指定）
+
+**デフォルト期間:**
+- 日報 / brief / reflection / guide: 1日
+- report / insight: 7日
+- review / trend: 90日
+
+**引数がある場合に日報モードで実行してはならない。先頭の単語がモード名に一致するかを必ず確認すること。**
 
 ---
 
