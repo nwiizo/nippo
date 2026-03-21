@@ -91,6 +91,15 @@ Claude Code の作業ログ（JSONL）から日報を自動生成し、利用者
 ## ステップ1: データ収集
 
 上で決定したモードと期間に応じて `nippo collect` を実行する。
+`nippo` が見つからない場合は `cargo install nippo` のインストール手順を案内して中断する。
+
+**トークン節約のため、可能な限り `--format summary` や `--stats-only` を使い、JSON 全量の読み込みを避ける。**
+
+| モード | 推奨オプション | 理由 |
+|--------|--------------|------|
+| brief | `--format summary` | Claude の加工不要。そのまま出力 |
+| 日報 / reflection / guide / report / review / insight | `--stats-only` でまず統計を取得し、必要なプロジェクトだけ `--project` で絞って再取得 | JSON 全量を読むとトークンを大量消費する |
+| trend | 3回の `--format summary` で各期間のサマリーを取得 | JSON 不要 |
 
 ### 引数からコレクターオプションを組み立てる
 
