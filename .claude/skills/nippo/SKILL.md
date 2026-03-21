@@ -86,23 +86,7 @@ Claude Code の作業ログ（JSONL）から日報を自動生成し、利用者
 
 ## ステップ1: データ収集
 
-Rust 製コレクターでセッションデータを収集する。
-
-### バイナリの確認
-
-まず `nippo` コマンドが PATH にあるか確認する:
-
-```bash
-which nippo 2>/dev/null || echo "NOT_FOUND"
-```
-
-見つからない場合、プロジェクトルートでビルドを試みる:
-
-```bash
-cargo build --release -p nippo && echo "BUILD_OK"
-```
-
-ビルド成功時は `target/release/nippo` をフルパスで使う。
+上で決定したモードと期間に応じて `nippo collect` を実行する。
 
 ### 引数からコレクターオプションを組み立てる
 
@@ -123,14 +107,10 @@ cargo build --release -p nippo && echo "BUILD_OK"
 - `json`（デフォルト）: 構造化 JSON。`/nippo`, `/nippo reflection`, `/nippo guide`, `/nippo insight` で使用
 - `summary`: テキストサマリー。`/nippo brief` で使用（Claude による加工不要でそのまま出力）
 
+実行:
+
 ```bash
 nippo collect --days N > /tmp/nippo-data.json
-```
-
-またはビルドしたバイナリ:
-
-```bash
-./target/release/nippo collect --days N > /tmp/nippo-data.json
 ```
 
 ### 出力の読み取り
