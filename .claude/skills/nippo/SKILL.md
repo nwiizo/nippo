@@ -12,7 +12,7 @@ context: fork
 
 # データ収集結果
 
-!`nippo collect --days 1 --format summary 2>/dev/null || echo "nippo コマンドが見つかりません。cargo install nippo でインストールしてください。"`
+!`nippo collect --days 1 --format summary 2>/dev/null || echo "nippo コマンドが見つかりません。cargo install nippo でインストールしてください。詳細: https://github.com/nwiizo/nippo"`
 
 # 指示
 
@@ -20,7 +20,7 @@ context: fork
 
 ## ルール
 
-- データ収集は `nippo` CLI のみ。Python は使わない。他のスキルを参照しない
+- データ収集は `nippo` CLI のみ。**Python は絶対に使わない**（python, python3, python -c すべて禁止）
 - `stats` の集計済みデータは**直接引用する。再計算しない**
 - 書籍・URL は紹介しない。概念名・検索キーワードを示す
 - レポートは日本語で出力する
@@ -49,18 +49,21 @@ context: fork
 
 1. 上のテーブルに従い `nippo collect` を Bash で実行（brief は出力を直接保存して完了）
 2. JSON を Read で読み込む
-3. モードに対応するテンプレートを Read で読み込む（パスは `${CLAUDE_SKILL_DIR}` からの相対）
+3. モードに対応するテンプレートを Read で読み込む
 
-| モード | テンプレート | 補足 |
-|--------|-----------|------|
-| 日報 | docs/templates/nippo-template.md | 用語レビュー含む |
-| reflection | docs/templates/reflection-template.md | **回答は書かない**。docs/reflection-theory.md 参照 |
-| guide | docs/templates/guide-template.md | 回答 + 概念 + 多角的フィードバック。docs/reflection-theory.md 参照 |
-| report | docs/templates/report-template.md | 成果 + 課題。感情は含めない |
-| review | docs/templates/review-template.md | 成果の定量化 + 成長 + 次期目標 |
-| insight | docs/templates/insight-template.md | ALACT モデルで回答付き。docs/reflection-theory.md 参照 |
-| trend | docs/templates/trend-template.md | 3期間の比較。最低45日。未満なら insight を推奨 |
+テンプレートは `${CLAUDE_SKILL_DIR}/docs/templates/` にある:
 
+| モード | テンプレートファイル | 補足 |
+|--------|-------------------|------|
+| 日報 | `${CLAUDE_SKILL_DIR}/docs/templates/nippo-template.md` | 用語レビュー含む |
+| reflection | `${CLAUDE_SKILL_DIR}/docs/templates/reflection-template.md` | **回答は書かない** |
+| guide | `${CLAUDE_SKILL_DIR}/docs/templates/guide-template.md` | 回答 + 概念 + 多角的フィードバック |
+| report | `${CLAUDE_SKILL_DIR}/docs/templates/report-template.md` | 成果 + 課題。感情は含めない |
+| review | `${CLAUDE_SKILL_DIR}/docs/templates/review-template.md` | 成果の定量化 + 成長 + 次期目標 |
+| insight | `${CLAUDE_SKILL_DIR}/docs/templates/insight-template.md` | ALACT モデルで回答付き |
+| trend | `${CLAUDE_SKILL_DIR}/docs/templates/trend-template.md` | 3期間の比較。最低45日 |
+
+reflection / guide / insight は `${CLAUDE_SKILL_DIR}/docs/reflection-theory.md` も Read する。
 reflection / guide は同日の `reports/nippo-YYYY-MM-DD.md` があれば Read する。
 
 4. テンプレートに従いレポートを Write で保存
