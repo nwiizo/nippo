@@ -205,6 +205,23 @@ nippo/
 └── .github/workflows/ci.yml  # CI
 ```
 
+## テンプレートのカスタマイズ
+
+[`docs/templates/`](docs/templates/) のテンプレートを編集すると、各コマンドの出力形式を変更できる。
+
+| ファイル | 変更できること |
+|---------|-------------|
+| `nippo-template.md` | 日報の項目（セクションの追加・削除） |
+| `reflection-template.md` | 問いの生成ルール・理論フレームワーク |
+| `guide-template.md` | フィードバックの視点（シニア・CTO 等の変更・追加） |
+| `report-template.md` | 進捗報告のフォーマット（社内テンプレートに合わせる） |
+| `review-template.md` | 自己評価の構造 |
+| `insight-template.md` | 振り返りの分析フレーム |
+| `trend-template.md` | 変化分析の比較観点 |
+| `reflection-theory.md` | 参照するリフレクション理論 |
+
+テンプレートの編集に Rust の再ビルドは不要。シンボリックリンクで配置していれば、ファイルを編集するだけで即反映される。
+
 ## 制約
 
 - データ収集は Rust バイナリのみ。Python は使わない
