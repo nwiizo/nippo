@@ -61,12 +61,15 @@ Claude Code で作業するだけで日報ができる。
 # 1. Rust バイナリ
 cargo install nippo
 
-# 2. スキル（シンボリックリンク推奨。git pull で更新が反映される）
+# 2. スキル（シンボリックリンク推奨）
 git clone https://github.com/nwiizo/nippo && cd nippo
 ln -s "$(pwd)/.claude/skills/nippo" ~/.claude/skills/nippo
 ```
 
-コピーする場合は `cp -r .claude/skills/nippo ~/.claude/skills/nippo`。
+シンボリックリンクにすると `git pull` でスキルとテンプレートの更新が自動反映される。
+スキルディレクトリ内の `docs` シンボリックリンクにより、どのディレクトリから `/nippo` を実行してもテンプレートが正しく読み込まれる。
+
+コピーする場合は `cp -r .claude/skills/nippo ~/.claude/skills/nippo`（テンプレート更新時は再コピーが必要）。
 
 **要件**: [Claude Code](https://claude.com/claude-code) + Rust 1.85+
 
@@ -197,7 +200,8 @@ nippo/
 │   ├── output.rs             # JSON / summary 出力
 │   └── sources/claude_code.rs # JSONL パーサ
 ├── .claude/skills/nippo/
-│   └── SKILL.md              # スキル定義
+│   ├── SKILL.md              # スキル定義
+│   └── docs -> ../../../docs # テンプレートへのシンボリックリンク
 ├── docs/
 │   ├── templates/            # 各モードのテンプレート
 │   ├── reflection-theory.md  # リフレクション理論
