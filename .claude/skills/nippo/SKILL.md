@@ -93,38 +93,32 @@ Claude Code の作業ログ（JSONL）から日報を自動生成し、利用者
 上で決定したモードと期間に応じて `nippo collect` を実行する。
 `nippo` が見つからない場合は `cargo install nippo` のインストール手順を案内して中断する。
 
-**トークン節約のため、可能な限り `--format summary` や `--stats-only` を使い、JSON 全量の読み込みを避ける。**
+**Rust バイナリが出力する JSON には `stats` に集計済みのデータが含まれている。Claude が自前で集計・加工する必要はない。**
+`stats` に含まれるもの:
+- `projects_worked_on`: プロジェクト別のセッション数・メッセージ数・時間範囲・ツール使用・ファイル一覧
+- `decisions_by_project`: プロジェクト別の意思決定件数
+- `sessions_by_hour`: 時間帯別のアクティビティ
+- `overall_time_range`: 全体の開始〜終了時刻
+- `prompt_stats`: プロンプトの平均文字数・短すぎるプロンプト数
 
-| モード | 推奨オプション | 理由 |
-|--------|--------------|------|
-| brief | `--format summary` | Claude の加工不要。そのまま出力 |
-| 日報 / reflection / guide / report / review / insight | `--stats-only` でまず統計を取得し、必要なプロジェクトだけ `--project` で絞って再取得 | JSON 全量を読むとトークンを大量消費する |
-| trend | 3回の `--format summary` で各期間のサマリーを取得 | JSON 不要 |
+**これらの値は JSON から直接引用する。再計算しない。**
 
-### 引数からコレクターオプションを組み立てる
+### モード別の実行コマンド
 
-| コマンド | コレクター実行 |
-|---------|--------------|
-| `/nippo` | `nippo collect --days 1` |
-| `/nippo brief` | `nippo collect --days 1 --format summary` |
-| `/nippo reflection` | `nippo collect --days 1` |
-| `/nippo guide` | `nippo collect --days 1` |
-| `/nippo insight` | `nippo collect --days 7` |
-| `/nippo insight nippo` | `nippo collect --days 7 --project nippo` |
-| `/nippo report` | `nippo collect --days 7` |
-| `/nippo review` | `nippo collect --days 90` |
-| `/nippo trend` | 3回実行（期間を三分割。後述） |
-| 期間指定あり | `--days N` に置き換え |
+| モード | 実行するコマンド |
+|--------|----------------|
+| 日報 | `nippo collect --days N > /tmp/nippo-data.json` |
+| brief | `nippo collect --days N --format summary` → 出力をそのまま保存。Claude の加工不要 |
+| reflection | `nippo collect --days N > /tmp/nippo-data.json` |
+| guide | `nippo collect --days N > /tmp/nippo-data.json` |
+| report | `nippo collect --days N --stats-only > /tmp/nippo-data.json` |
+| review | `nippo collect --days N --stats-only > /tmp/nippo-data.json` |
+| insight | `nippo collect --days N > /tmp/nippo-data.json` |
+| trend | 期間を三分割し、3回 `nippo collect --from X --to Y --format summary` を実行 |
 
-`--format` オプション:
-- `json`（デフォルト）: 構造化 JSON。`/nippo`, `/nippo reflection`, `/nippo guide`, `/nippo insight` で使用
-- `summary`: テキストサマリー。`/nippo brief` で使用（Claude による加工不要でそのまま出力）
-
-実行:
-
-```bash
-nippo collect --days N > /tmp/nippo-data.json
-```
+- プロジェクト指定がある場合は `--project NAME` を追加
+- report / review は `--stats-only` を使う（ユーザープロンプトの詳細は不要）
+- trend は `--format summary` で3回実行し、テキストを比較する
 
 ### 出力の読み取り
 
