@@ -1,8 +1,18 @@
+use chrono::{DateTime, Local, Timelike, Utc};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt::Write;
 
 use crate::sources::claude_code::{RawSession, summarize_session};
+
+/// UTC タイムスタンプからローカル時間の時（HH）を抽出する
+fn extract_local_hour(timestamp: &str) -> Option<String> {
+    let dt = DateTime::parse_from_rfc3339(timestamp)
+        .ok()
+        .map(|d| d.with_timezone(&Utc))?;
+    let local = dt.with_timezone(&Local);
+    Some(format!("{:02}", local.hour()))
+}
 
 // ---------------------------------------------------------------------------
 // Output structures (serialized to JSON for Claude)
@@ -74,6 +84,9 @@ pub struct AggregateStats {
     pub tool_frequency: HashMap<String, u32>,
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
+    pub decisions_by_project: Vec<DecisionsByProject>,
+    pub total_decisions: usize,
+    pub sessions_by_hour: HashMap<String, u32>,
 }
 
 #[derive(Serialize)]
@@ -81,6 +94,12 @@ pub struct ProjectStat {
     pub name: String,
     pub session_count: usize,
     pub message_count: usize,
+}
+
+#[derive(Serialize)]
+pub struct DecisionsByProject {
+    pub project: String,
+    pub count: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +175,7 @@ pub fn build_output(
     stats_only: bool,
 ) -> CollectorOutput {
     let decisions = extract_decisions(&sessions);
-    let stats = compute_stats(&sessions);
+    let stats = compute_stats(&sessions, &decisions);
 
     let session_summaries = if stats_only {
         Vec::new()
@@ -263,14 +282,15 @@ pub fn format_summary(output: &CollectorOutput) -> String {
     buf
 }
 
-fn compute_stats(sessions: &[RawSession]) -> AggregateStats {
+fn compute_stats(sessions: &[RawSession], decisions: &[DecisionPoint]) -> AggregateStats {
     let mut total_user = 0usize;
     let mut total_assistant = 0usize;
     let mut total_tool_uses = 0usize;
     let mut tool_freq: HashMap<String, u32> = HashMap::new();
     let mut total_input_tokens: u64 = 0;
     let mut total_output_tokens: u64 = 0;
-    let mut project_counts: HashMap<String, (usize, usize)> = HashMap::new(); // (sessions, messages)
+    let mut project_counts: HashMap<String, (usize, usize)> = HashMap::new();
+    let mut hour_counts: HashMap<String, u32> = HashMap::new();
 
     for session in sessions {
         total_user += session.user_entries.len();
@@ -282,6 +302,13 @@ fn compute_stats(sessions: &[RawSession]) -> AggregateStats {
             .or_insert((0, 0));
         entry.0 += 1;
         entry.1 += msg_count;
+
+        // セッションの時間帯別集計（ローカルタイム）
+        for ue in &session.user_entries {
+            if let Some(hour) = extract_local_hour(&ue.timestamp) {
+                *hour_counts.entry(hour).or_insert(0) += 1;
+            }
+        }
 
         for ae in &session.assistant_entries {
             for tool in &ae.tool_uses {
@@ -303,6 +330,17 @@ fn compute_stats(sessions: &[RawSession]) -> AggregateStats {
         .collect();
     projects_worked_on.sort_by(|a, b| b.message_count.cmp(&a.message_count));
 
+    // decisions のプロジェクト別集計
+    let mut dec_counts: HashMap<String, usize> = HashMap::new();
+    for d in decisions {
+        *dec_counts.entry(d.project.clone()).or_insert(0) += 1;
+    }
+    let mut decisions_by_project: Vec<DecisionsByProject> = dec_counts
+        .into_iter()
+        .map(|(project, count)| DecisionsByProject { project, count })
+        .collect();
+    decisions_by_project.sort_by(|a, b| b.count.cmp(&a.count));
+
     AggregateStats {
         projects_worked_on,
         total_user_messages: total_user,
@@ -311,5 +349,8 @@ fn compute_stats(sessions: &[RawSession]) -> AggregateStats {
         tool_frequency: tool_freq,
         total_input_tokens,
         total_output_tokens,
+        decisions_by_project,
+        total_decisions: decisions.len(),
+        sessions_by_hour: hour_counts,
     }
 }
