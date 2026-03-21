@@ -87,6 +87,8 @@ pub struct AggregateStats {
     pub decisions_by_project: Vec<DecisionsByProject>,
     pub total_decisions: usize,
     pub sessions_by_hour: HashMap<String, u32>,
+    pub overall_time_range: DateRange,
+    pub prompt_stats: PromptStats,
 }
 
 #[derive(Serialize)]
@@ -94,6 +96,16 @@ pub struct ProjectStat {
     pub name: String,
     pub session_count: usize,
     pub message_count: usize,
+    pub time_range: DateRange,
+    pub tool_usage: HashMap<String, u32>,
+    pub files_touched: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct PromptStats {
+    pub avg_length: usize,
+    pub short_prompts: usize,
+    pub total_prompts: usize,
 }
 
 #[derive(Serialize)]
@@ -289,43 +301,96 @@ fn compute_stats(sessions: &[RawSession], decisions: &[DecisionPoint]) -> Aggreg
     let mut tool_freq: HashMap<String, u32> = HashMap::new();
     let mut total_input_tokens: u64 = 0;
     let mut total_output_tokens: u64 = 0;
-    let mut project_counts: HashMap<String, (usize, usize)> = HashMap::new();
     let mut hour_counts: HashMap<String, u32> = HashMap::new();
+    let mut all_timestamps: Vec<&str> = Vec::new();
+    let mut total_prompt_chars: usize = 0;
+    let mut short_prompts: usize = 0;
+    let mut total_prompts: usize = 0;
+
+    // プロジェクト別集約用
+    struct ProjectAccum {
+        session_count: usize,
+        message_count: usize,
+        timestamps: Vec<String>,
+        tool_usage: HashMap<String, u32>,
+        files: Vec<String>,
+    }
+    let mut project_accum: HashMap<String, ProjectAccum> = HashMap::new();
 
     for session in sessions {
         total_user += session.user_entries.len();
         total_assistant += session.assistant_entries.len();
 
         let msg_count = session.user_entries.len() + session.assistant_entries.len();
-        let entry = project_counts
+        let pa = project_accum
             .entry(session.project.clone())
-            .or_insert((0, 0));
-        entry.0 += 1;
-        entry.1 += msg_count;
+            .or_insert_with(|| ProjectAccum {
+                session_count: 0,
+                message_count: 0,
+                timestamps: Vec::new(),
+                tool_usage: HashMap::new(),
+                files: Vec::new(),
+            });
+        pa.session_count += 1;
+        pa.message_count += msg_count;
 
-        // セッションの時間帯別集計（ローカルタイム）
         for ue in &session.user_entries {
+            all_timestamps.push(&ue.timestamp);
+            pa.timestamps.push(ue.timestamp.clone());
+
+            // 時間帯別集計
             if let Some(hour) = extract_local_hour(&ue.timestamp) {
                 *hour_counts.entry(hour).or_insert(0) += 1;
+            }
+
+            // プロンプト統計
+            total_prompt_chars += ue.text.len();
+            total_prompts += 1;
+            if ue.text.len() < 20 {
+                short_prompts += 1;
             }
         }
 
         for ae in &session.assistant_entries {
+            all_timestamps.push(&ae.timestamp);
+            pa.timestamps.push(ae.timestamp.clone());
+
             for tool in &ae.tool_uses {
                 *tool_freq.entry(tool.clone()).or_insert(0) += 1;
+                *pa.tool_usage.entry(tool.clone()).or_insert(0) += 1;
                 total_tool_uses += 1;
             }
+            pa.files.extend(ae.file_paths.iter().cloned());
             total_input_tokens += ae.input_tokens;
             total_output_tokens += ae.output_tokens;
         }
     }
 
-    let mut projects_worked_on: Vec<ProjectStat> = project_counts
+    // 全体の時間範囲
+    all_timestamps.sort();
+    let overall_time_range = DateRange {
+        start: all_timestamps.first().map(|s| s.to_string()),
+        end: all_timestamps.last().map(|s| s.to_string()),
+    };
+
+    // プロジェクト別集約
+    let mut projects_worked_on: Vec<ProjectStat> = project_accum
         .into_iter()
-        .map(|(name, (session_count, message_count))| ProjectStat {
-            name,
-            session_count,
-            message_count,
+        .map(|(name, mut pa)| {
+            pa.timestamps.sort();
+            pa.files.sort();
+            pa.files.dedup();
+            ProjectStat {
+                name,
+                session_count: pa.session_count,
+                message_count: pa.message_count,
+                time_range: DateRange {
+                    start: pa.timestamps.first().cloned(),
+                    end: pa.timestamps.last().cloned(),
+                },
+                tool_usage: pa.tool_usage,
+                files_touched: pa.files,
+            }
         })
         .collect();
     projects_worked_on.sort_by(|a, b| b.message_count.cmp(&a.message_count));
@@ -341,6 +406,12 @@ fn compute_stats(sessions: &[RawSession], decisions: &[DecisionPoint]) -> Aggreg
         .collect();
     decisions_by_project.sort_by(|a, b| b.count.cmp(&a.count));
 
+    let avg_length = if total_prompts > 0 {
+        total_prompt_chars / total_prompts
+    } else {
+        0
+    };
+
     AggregateStats {
         projects_worked_on,
         total_user_messages: total_user,
@@ -352,5 +423,11 @@ fn compute_stats(sessions: &[RawSession], decisions: &[DecisionPoint]) -> Aggreg
         decisions_by_project,
         total_decisions: decisions.len(),
         sessions_by_hour: hour_counts,
+        overall_time_range,
+        prompt_stats: PromptStats {
+            avg_length,
+            short_prompts,
+            total_prompts,
+        },
     }
 }

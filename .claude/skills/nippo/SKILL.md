@@ -150,13 +150,23 @@ nippo collect --days N > /tmp/nippo-data.json
     }
   ],
   "stats": {
-    "projects_worked_on": [...],
+    "projects_worked_on": [
+      {"name": "nippo", "session_count": 24, "message_count": 1185,
+       "time_range": {"start": "...", "end": "..."},
+       "tool_usage": {"Read": 50, "Edit": 30},
+       "files_touched": ["/path/to/file.rs"]}
+    ],
     "total_user_messages": 27,
     "total_assistant_messages": 150,
     "total_tool_uses": 200,
     "tool_frequency": {"Read": 50, "Edit": 30},
     "total_input_tokens": 100000,
-    "total_output_tokens": 30000
+    "total_output_tokens": 30000,
+    "decisions_by_project": [{"project": "nippo", "count": 6}],
+    "total_decisions": 9,
+    "sessions_by_hour": {"09": 25, "13": 75, "14": 41},
+    "overall_time_range": {"start": "...", "end": "..."},
+    "prompt_stats": {"avg_length": 251, "short_prompts": 10, "total_prompts": 150}
   }
 }
 ```
