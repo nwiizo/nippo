@@ -189,7 +189,7 @@ nippo collect --days N > /tmp/nippo-data.json
 
 ### `/nippo`（日報）
 
-[references/nippo-template.md](references/nippo-template.md) のテンプレートに従い、日本語でレポートを生成する。
+[docs/templates/nippo-template.md](docs/templates/nippo-template.md) のテンプレートに従い、日本語でレポートを生成する。
 
 **重要**:
 - 「今日の作業」「意思決定とトレードオフ」「用語・コミュニケーションレビュー」「統計」はデータから**自動的に埋める**
@@ -207,25 +207,25 @@ nippo collect --days N > /tmp/nippo-data.json
 
 ### `/nippo reflection`（リフレクション足場）
 
-[references/reflection-template.md](references/reflection-template.md) のテンプレートに従い生成する。
+[docs/templates/reflection-template.md](docs/templates/reflection-template.md) のテンプレートに従い生成する。
 
 **重要**:
 - 同日の日報 `reports/nippo-YYYY-MM-DD.md` が存在すればそれも Read で読み込み、事実に基づいた**具体的な問い**を生成する
 - 問いは固定テンプレートではなく、**その日の作業内容に即して Claude が生成する**
-- [references/reflection-theory.md](references/reflection-theory.md) を参照し、コルブ・ギブスの理論に基づく問いを出す
+- [docs/reflection-theory.md](docs/reflection-theory.md) を参照し、コルブ・ギブスの理論に基づく問いを出す
 - **回答は絶対に書かない**。回答欄は空白（`>` のみ）で出力する
 - 利用者自身が考え、書くことに意味がある
 
 ### `/nippo guide`（学習支援付きガイド）
 
-[references/guide-template.md](references/guide-template.md) のテンプレートに従い生成する。
+[docs/templates/guide-template.md](docs/templates/guide-template.md) のテンプレートに従い生成する。
 
 ジュニアエンジニアやシニアなりたて、初学者向け。
 問いに対する回答を先に提示し、**改善方法と学ぶべき概念・技術への導線**を提供する。
 
 **重要**:
 - 同日の日報 `reports/nippo-YYYY-MM-DD.md` が存在すればそれも Read で読み込む
-- [references/reflection-theory.md](references/reflection-theory.md) を参照する
+- [docs/reflection-theory.md](docs/reflection-theory.md) を参照する
 - 問い + 回答 + 改善提案 + 学ぶべき概念を生成する
 - **書籍の紹介はしない**（ハルシネーションリスク）。概念名・技術名・検索キーワードを示す
 - 学習リソースそのものは提示せず、**概念の名前と検索の手がかり**を示して自分でたどり着けるようにする
@@ -234,7 +234,7 @@ nippo collect --days N > /tmp/nippo-data.json
 
 ### `/nippo insight`（深い振り返り・回答付き）
 
-[references/insight-template.md](references/insight-template.md) のテンプレートに従い生成する。
+[docs/templates/insight-template.md](docs/templates/insight-template.md) のテンプレートに従い生成する。
 
 insight は振り返りそのものなので、Claude が問いに対する**回答も書く**。
 
@@ -242,12 +242,12 @@ insight は振り返りそのものなので、Claude が問いに対する**回
 - 「期間の事実」「意思決定の傾向」は自動生成する
 - ALACT モデルの問いを生成し、**Claude がデータに基づいて回答する**
 - 回答は事実と推測を区別する（「〜と推測されます」等）
-- [references/reflection-theory.md](references/reflection-theory.md) を参照する
+- [docs/reflection-theory.md](docs/reflection-theory.md) を参照する
 - ファイル末尾に「あなたの番」セクションを設け、利用者が自分の視点を書き足せるようにする
 
 ### `/nippo report`（上司・メンター向け進捗報告）
 
-[references/report-template.md](references/report-template.md) のテンプレートに従い生成する。
+[docs/templates/report-template.md](docs/templates/report-template.md) のテンプレートに従い生成する。
 
 1on1 やメンター面談、上司への報告に使う。自分向けの振り返りではなく、**他者に見せる**前提。
 
@@ -260,7 +260,7 @@ insight は振り返りそのものなので、Claude が問いに対する**回
 
 ### `/nippo review`（評価面談・自己評価用）
 
-[references/review-template.md](references/review-template.md) のテンプレートに従い生成する。
+[docs/templates/review-template.md](docs/templates/review-template.md) のテンプレートに従い生成する。
 
 四半期・半期の評価面談や自己評価シートの記入に使う。成果の定量化と成長の可視化に焦点を当てる。
 
@@ -273,7 +273,7 @@ insight は振り返りそのものなので、Claude が問いに対する**回
 
 ### `/nippo trend`（変化の推移分析）
 
-[references/trend-template.md](references/trend-template.md) のテンプレートに従い生成する。
+[docs/templates/trend-template.md](docs/templates/trend-template.md) のテンプレートに従い生成する。
 
 指定期間を三等分し、各期間のデータを個別に収集して**変化の推移**を分析する。
 
@@ -291,7 +291,7 @@ insight は振り返りそのものなので、Claude が問いに対する**回
   - 意思決定パターンの変化
   - コミュニケーションスタイルの変化
 - 変化を「成長」「停滞」「変化」として中立的に記述する。良い/悪いの評価はしない
-- [references/reflection-theory.md](references/reflection-theory.md) を参照する
+- [docs/reflection-theory.md](docs/reflection-theory.md) を参照する
 
 ## ステップ3: 出力
 
@@ -322,15 +322,15 @@ insight は振り返りそのものなので、Claude が問いに対する**回
 
 ## 参照リソース
 
-- **[references/nippo-template.md](references/nippo-template.md)** — 日報テンプレート
-- **[references/reflection-template.md](references/reflection-template.md)** — リフレクション足場テンプレート
-- **[references/guide-template.md](references/guide-template.md)** — ガイドテンプレート（回答付きリフレクション）
-- **[references/insight-template.md](references/insight-template.md)** — insight テンプレート
-- **[references/report-template.md](references/report-template.md)** — report テンプレート（上司・メンター向け報告）
-- **[references/review-template.md](references/review-template.md)** — review テンプレート（評価面談・自己評価用）
-- **[references/trend-template.md](references/trend-template.md)** — trend テンプレート（三分割変化分析）
-- **[references/reflection-theory.md](references/reflection-theory.md)** — リフレクション理論まとめ
-- **[references/data-sources.md](references/data-sources.md)** — JSONL データソースの仕様
+- **[docs/templates/nippo-template.md](docs/templates/nippo-template.md)** — 日報テンプレート
+- **[docs/templates/reflection-template.md](docs/templates/reflection-template.md)** — リフレクション足場テンプレート
+- **[docs/templates/guide-template.md](docs/templates/guide-template.md)** — ガイドテンプレート（回答付きリフレクション）
+- **[docs/templates/insight-template.md](docs/templates/insight-template.md)** — insight テンプレート
+- **[docs/templates/report-template.md](docs/templates/report-template.md)** — report テンプレート（上司・メンター向け報告）
+- **[docs/templates/review-template.md](docs/templates/review-template.md)** — review テンプレート（評価面談・自己評価用）
+- **[docs/templates/trend-template.md](docs/templates/trend-template.md)** — trend テンプレート（三分割変化分析）
+- **[docs/reflection-theory.md](docs/reflection-theory.md)** — リフレクション理論まとめ
+- **[docs/data-sources.md](docs/data-sources.md)** — JSONL データソースの仕様
 
 ## ステップ4: Rust バイナリへの改善提案
 
