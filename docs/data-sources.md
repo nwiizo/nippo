@@ -1,6 +1,6 @@
-# JSONL データソース仕様
+# データソース仕様
 
-Claude Code のセッションデータの保存場所と形式。
+Claude Code / Codex のセッションデータの保存場所と形式。
 
 ## 保存場所
 
@@ -83,6 +83,43 @@ Claude Code のセッションデータの保存場所と形式。
 
 user メッセージの content は `string`（単純テキスト）または `array`（content ブロック配列）のどちらか。
 
+## Codex の保存場所
+
+```
+~/.codex/history.jsonl
+~/.codex/state_5.sqlite
+~/.codex/logs_2.sqlite
+```
+
+- `history.jsonl`: user prompt 履歴。`nippo` での Codex 収集の主データソース
+- `state_5.sqlite`: thread の `cwd` / `git_branch` / `model` などのメタデータ
+- `logs_2.sqlite`: 内部診断ログ。`nippo` では**日報の主データソースに使わない**
+
+## Codex history.jsonl エントリ
+
+```json
+{
+  "session_id": "019d8a74-1bc5-7f70-ae36-35d80a42681f",
+  "ts": 1776144399,
+  "text": "https://github.com/nwiizo/nippo/issues/6 を参考に修正してほしいです。"
+}
+```
+
+- `session_id`: thread ID
+- `ts`: Unix timestamp（秒）
+- `text`: user prompt
+
+## Codex threads テーブル（使用列）
+
+```sql
+SELECT id, cwd, git_branch, model FROM threads;
+```
+
+- `id`: history の `session_id` と対応
+- `cwd`: プロジェクトパス
+- `git_branch`: ブランチ名
+- `model`: 使用モデル（現状は集計には未使用）
+
 ## コレクター CLI オプション
 
 ```bash
@@ -98,8 +135,17 @@ nippo collect [OPTIONS]
 | `--project NAME` | プロジェクト名でフィルタ（部分一致） | なし |
 | `--stats-only` | セッション詳細を省略し統計のみ出力 | `false` |
 | `--format json\|summary` | 出力形式 | `json` |
+| `--source auto\|claude\|codex\|all` | データソース選択 | `auto` |
 | `--claude-dir PATH` | Claude データディレクトリ | `~/.claude` |
+| `--codex-dir PATH` | Codex データディレクトリ | `~/.codex` |
 
 `--period` の値: `today`, `yesterday`, `this-week`, `last-week`, `week-before-last`, `this-month`, `last-month`, `month-before-last`
 
 優先順位: `--period` > `--from`/`--to` > `--days`
+
+`--source auto` の判定:
+
+- `CODEX_THREAD_ID` があるときは `codex`
+- それ以外は Claude Code のデータがあれば `claude`
+- Claude がなく Codex があれば `codex`
+- 明示的に両方混ぜたいときだけ `--source all`

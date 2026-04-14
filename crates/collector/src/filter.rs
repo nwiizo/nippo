@@ -139,12 +139,30 @@ impl DateFilter {
 
     /// Check if a timestamp string passes the filter.
     pub fn matches(&self, timestamp: &str) -> bool {
-        let dt = parse_timestamp(timestamp);
-        let dt = match dt {
+        let dt = match parse_timestamp(timestamp) {
             Some(d) => d,
             None => return true, // don't drop data silently
         };
 
+        self.matches_datetime(dt)
+    }
+
+    /// Check if a Unix timestamp (seconds) passes the filter.
+    pub fn matches_unix_seconds(&self, timestamp: i64) -> bool {
+        let dt = match DateTime::from_timestamp(timestamp, 0) {
+            Some(dt) => dt,
+            None => return true, // don't drop data silently
+        };
+
+        self.matches_datetime(dt)
+    }
+
+    /// Convert lower bound to SystemTime for file mtime pre-filtering.
+    pub fn mtime_cutoff(&self) -> Option<SystemTime> {
+        self.from.map(SystemTime::from)
+    }
+
+    fn matches_datetime(&self, dt: DateTime<Utc>) -> bool {
         if let Some(ref from) = self.from
             && dt < *from
         {
@@ -156,11 +174,6 @@ impl DateFilter {
             return false;
         }
         true
-    }
-
-    /// Convert lower bound to SystemTime for file mtime pre-filtering.
-    pub fn mtime_cutoff(&self) -> Option<SystemTime> {
-        self.from.map(SystemTime::from)
     }
 }
 
@@ -197,6 +210,20 @@ mod tests {
     fn test_unparseable_timestamp_passes() {
         let filter = DateFilter::from_days(1);
         assert!(filter.matches("not-a-date"));
+    }
+
+    #[test]
+    fn test_unix_seconds_filter() {
+        let filter =
+            DateFilter::from_range(Some("2026-03-15"), Some("2026-03-17")).expect("valid range");
+        let inside = DateTime::parse_from_rfc3339("2026-03-15T09:30:00Z")
+            .expect("valid timestamp")
+            .timestamp();
+        let outside = DateTime::parse_from_rfc3339("2026-03-14T23:59:59Z")
+            .expect("valid timestamp")
+            .timestamp();
+        assert!(filter.matches_unix_seconds(inside));
+        assert!(!filter.matches_unix_seconds(outside));
     }
 
     #[test]

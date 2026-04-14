@@ -1,7 +1,7 @@
 ---
 name: nippo
 description: >
-  Claude Code の JSONL セッションログから日報・リフレクション・インサイトを生成する。
+  Claude Code / Codex のセッションログから日報・リフレクション・インサイトを生成する。
   /nippo で日報、/nippo reflection で内省の問い、/nippo guide で学習支援、
   /nippo report で進捗報告、/nippo review で自己評価、/nippo insight で深い振り返り、
   /nippo trend で長期変化分析を生成する。Rust バイナリ (nippo) でデータを収集する。
@@ -26,6 +26,7 @@ context: fork
 - レポートは日本語で出力する
 - 出力先は cwd の `reports/` 配下（なければ `mkdir -p reports`）
 - ファイル名: `reports/{モード}-YYYY-MM-DD.md`（期間 N>1 なら `-Nd` を付与）
+- デフォルト source は `auto`。`codex` の `logs_2.sqlite` は診断用で、日報の主データソースにはしない
 
 ## モード決定
 

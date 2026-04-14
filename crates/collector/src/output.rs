@@ -1,9 +1,9 @@
 use chrono::{DateTime, Local, Timelike, Utc};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
-use crate::sources::claude_code::{RawSession, summarize_session};
+use crate::session::{RawSession, summarize_session};
 
 /// UTC タイムスタンプからローカル時間の時（HH）を抽出する
 fn extract_local_hour(timestamp: &str) -> Option<String> {
@@ -151,6 +151,7 @@ const DECISION_SIGNALS_EN: &[&str] = &[
 
 fn extract_decisions(sessions: &[RawSession]) -> Vec<DecisionPoint> {
     let mut decisions = Vec::new();
+    let mut seen = HashSet::new();
 
     for session in sessions {
         for entry in &session.user_entries {
@@ -160,6 +161,11 @@ fn extract_decisions(sessions: &[RawSession]) -> Vec<DecisionPoint> {
                 || DECISION_SIGNALS_EN.iter().any(|s| text_lower.contains(s));
 
             if is_decision {
+                let key = (entry.timestamp.clone(), entry.text.clone());
+                if !seen.insert(key) {
+                    continue;
+                }
+
                 // Try to extract context from the first ~50 chars
                 let context = entry.text.chars().take(80).collect::<String>();
 
@@ -181,11 +187,19 @@ fn extract_decisions(sessions: &[RawSession]) -> Vec<DecisionPoint> {
 // ---------------------------------------------------------------------------
 
 pub fn build_output(
-    sessions: Vec<RawSession>,
+    mut sessions: Vec<RawSession>,
     filter_label: &str,
     total_files_scanned: usize,
     stats_only: bool,
 ) -> CollectorOutput {
+    sessions.sort_by(|a, b| {
+        let left = latest_timestamp(a);
+        let right = latest_timestamp(b);
+        right
+            .cmp(left)
+            .then_with(|| a.session_id.cmp(&b.session_id))
+    });
+
     let decisions = extract_decisions(&sessions);
     let stats = compute_stats(&sessions, &decisions);
 
@@ -206,6 +220,21 @@ pub fn build_output(
         decisions,
         stats,
     }
+}
+
+fn latest_timestamp(session: &RawSession) -> &str {
+    let user = session
+        .user_entries
+        .last()
+        .map(|entry| entry.timestamp.as_str())
+        .unwrap_or_default();
+    let assistant = session
+        .assistant_entries
+        .last()
+        .map(|entry| entry.timestamp.as_str())
+        .unwrap_or_default();
+
+    if assistant > user { assistant } else { user }
 }
 
 /// 人間が読みやすいサマリーテキストを生成する
@@ -271,7 +300,7 @@ pub fn format_summary(output: &CollectorOutput) -> String {
         writeln!(buf).ok();
         writeln!(buf, "ツール:").ok();
         let mut tools: Vec<_> = s.tool_frequency.iter().collect();
-        tools.sort_by(|a, b| b.1.cmp(a.1));
+        tools.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
         let total = s.total_tool_uses.max(1) as f64;
         for (name, count) in tools.iter().take(8) {
             let pct = (**count as f64 / total) * 100.0;
@@ -393,7 +422,11 @@ fn compute_stats(sessions: &[RawSession], decisions: &[DecisionPoint]) -> Aggreg
             }
         })
         .collect();
-    projects_worked_on.sort_by(|a, b| b.message_count.cmp(&a.message_count));
+    projects_worked_on.sort_by(|a, b| {
+        b.message_count
+            .cmp(&a.message_count)
+            .then_with(|| a.name.cmp(&b.name))
+    });
 
     // decisions のプロジェクト別集計
     let mut dec_counts: HashMap<String, usize> = HashMap::new();
@@ -404,7 +437,11 @@ fn compute_stats(sessions: &[RawSession], decisions: &[DecisionPoint]) -> Aggreg
         .into_iter()
         .map(|(project, count)| DecisionsByProject { project, count })
         .collect();
-    decisions_by_project.sort_by(|a, b| b.count.cmp(&a.count));
+    decisions_by_project.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.project.cmp(&b.project))
+    });
 
     let avg_length = if total_prompts > 0 {
         total_prompt_chars / total_prompts
@@ -429,5 +466,44 @@ fn compute_stats(sessions: &[RawSession], decisions: &[DecisionPoint]) -> Aggreg
             short_prompts,
             total_prompts,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::{ParsedAssistantEntry, ParsedUserEntry, RawSession};
+
+    #[test]
+    fn deduplicates_decisions_by_timestamp_and_prompt() {
+        let sessions = vec![
+            RawSession {
+                session_id: "session-a".to_string(),
+                project: "nippo".to_string(),
+                project_path: "/tmp/nippo".to_string(),
+                git_branch: Some("main".to_string()),
+                user_entries: vec![ParsedUserEntry {
+                    timestamp: "2026-04-01T10:00:00Z".to_string(),
+                    text: "Rust にする".to_string(),
+                }],
+                assistant_entries: Vec::<ParsedAssistantEntry>::new(),
+            },
+            RawSession {
+                session_id: "session-b".to_string(),
+                project: "nippo".to_string(),
+                project_path: "/tmp/nippo".to_string(),
+                git_branch: Some("main".to_string()),
+                user_entries: vec![ParsedUserEntry {
+                    timestamp: "2026-04-01T10:00:00Z".to_string(),
+                    text: "Rust にする".to_string(),
+                }],
+                assistant_entries: Vec::<ParsedAssistantEntry>::new(),
+            },
+        ];
+
+        let output = build_output(sessions, "today", 2, false);
+
+        assert_eq!(output.decisions.len(), 1);
+        assert_eq!(output.stats.total_decisions, 1);
     }
 }

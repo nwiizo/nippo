@@ -1,5 +1,6 @@
 mod filter;
 mod output;
+mod session;
 mod sources;
 
 use anyhow::Result;
@@ -8,7 +9,15 @@ use std::path::PathBuf;
 
 use crate::filter::{DateFilter, Period};
 use crate::output::{build_output, format_summary};
-use crate::sources::claude_code::{collect_sessions, discover_session_files};
+use crate::session::RawSession;
+use crate::sources::claude_code::{
+    collect_sessions as collect_claude_sessions,
+    discover_session_files as discover_claude_session_files,
+};
+use crate::sources::codex::{
+    collect_sessions as collect_codex_sessions,
+    discover_history_files as discover_codex_history_files,
+};
 
 #[derive(Clone, ValueEnum)]
 enum OutputFormat {
@@ -18,20 +27,33 @@ enum OutputFormat {
     Summary,
 }
 
+#[derive(Clone, ValueEnum)]
+enum DataSource {
+    /// Choose the active session source automatically
+    Auto,
+    /// Read Claude Code session logs
+    Claude,
+    /// Read Codex history and thread metadata
+    Codex,
+    /// Merge Claude Code and Codex history
+    All,
+}
+
 #[derive(Parser)]
 #[command(
     name = "nippo",
     version,
-    about = "Claude Code session collector for daily reports",
+    about = "Claude Code / Codex session collector for daily reports",
     long_about = "\
-Claude Code の JSONL セッションログを収集・集計するツール。
-Claude Code スキル（/nippo）のデータ収集バックエンドとして動作する。
+Claude Code / Codex のセッションログを収集・集計するツール。
+nippo スキルのデータ収集バックエンドとして動作する。
 
 単体でも使える:
   nippo collect --format summary          今日のサマリー
   nippo collect --days 7 --format summary 過去7日のサマリー
   nippo collect --period last-week        先週のデータ
   nippo collect --project myapp           プロジェクトで絞り込み
+  nippo collect --source codex            Codex 履歴のみ
 
 スキルと組み合わせて使う:
   /nippo              日報（事実 + 意思決定 + 用語レビュー）
@@ -52,7 +74,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Collect session data from Claude Code JSONL files
+    /// Collect session data from Claude Code or Codex logs
     Collect {
         /// Number of days to look back (0 = all time)
         #[arg(long, default_value = "1")]
@@ -86,9 +108,17 @@ enum Commands {
         #[arg(long, value_enum, default_value = "json")]
         format: OutputFormat,
 
+        /// Session source (auto/claude/codex/all)
+        #[arg(long, value_enum, default_value = "auto")]
+        source: DataSource,
+
         /// Custom Claude data directory (default: ~/.claude)
         #[arg(long)]
         claude_dir: Option<PathBuf>,
+
+        /// Custom Codex data directory (default: ~/.codex)
+        #[arg(long)]
+        codex_dir: Option<PathBuf>,
     },
 }
 
@@ -112,9 +142,13 @@ fn run() -> Result<()> {
             stats_only,
             max_sessions,
             format,
+            source,
             claude_dir,
+            codex_dir,
         } => {
-            let claude_dir = claude_dir.unwrap_or_else(|| dirs_home().join(".claude"));
+            let home_dir = dirs_home();
+            let claude_dir = claude_dir.unwrap_or_else(|| home_dir.join(".claude"));
+            let codex_dir = codex_dir.unwrap_or_else(|| home_dir.join(".codex"));
 
             // Priority: --period > --from/--to > --days
             let filter = if let Some(ref period) = period {
@@ -125,11 +159,9 @@ fn run() -> Result<()> {
                 DateFilter::from_days(days)
             };
 
-            let total_files = discover_session_files(&claude_dir)
-                .map(|f| f.len())
-                .unwrap_or(0);
-
-            let mut sessions = collect_sessions(&claude_dir, &filter)?;
+            let selected_sources = resolve_sources(&source, &claude_dir, &codex_dir);
+            let (mut sessions, total_files) =
+                collect_from_sources(&selected_sources, &claude_dir, &codex_dir, &filter)?;
 
             if let Some(ref proj) = project {
                 let proj_lower = proj.to_lowercase();
@@ -171,6 +203,78 @@ fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn resolve_sources(
+    source: &DataSource,
+    claude_dir: &std::path::Path,
+    codex_dir: &std::path::Path,
+) -> Vec<DataSource> {
+    match source {
+        DataSource::Auto => vec![detect_auto_source(claude_dir, codex_dir)],
+        DataSource::Claude => vec![DataSource::Claude],
+        DataSource::Codex => vec![DataSource::Codex],
+        DataSource::All => {
+            let mut sources = Vec::new();
+            if claude_available(claude_dir) {
+                sources.push(DataSource::Claude);
+            }
+            if codex_available(codex_dir) {
+                sources.push(DataSource::Codex);
+            }
+            if sources.is_empty() {
+                sources.push(detect_auto_source(claude_dir, codex_dir));
+            }
+            sources
+        }
+    }
+}
+
+fn detect_auto_source(claude_dir: &std::path::Path, codex_dir: &std::path::Path) -> DataSource {
+    if std::env::var_os("CODEX_THREAD_ID").is_some() && codex_available(codex_dir) {
+        return DataSource::Codex;
+    }
+    if claude_available(claude_dir) {
+        return DataSource::Claude;
+    }
+    if codex_available(codex_dir) {
+        return DataSource::Codex;
+    }
+    DataSource::Claude
+}
+
+fn collect_from_sources(
+    sources: &[DataSource],
+    claude_dir: &std::path::Path,
+    codex_dir: &std::path::Path,
+    filter: &DateFilter,
+) -> Result<(Vec<RawSession>, usize)> {
+    let mut sessions = Vec::new();
+    let mut total_files = 0;
+
+    for source in sources {
+        match source {
+            DataSource::Claude => {
+                total_files += discover_claude_session_files(claude_dir)?.len();
+                sessions.extend(collect_claude_sessions(claude_dir, filter)?);
+            }
+            DataSource::Codex => {
+                total_files += discover_codex_history_files(codex_dir)?.len();
+                sessions.extend(collect_codex_sessions(codex_dir, filter)?);
+            }
+            DataSource::Auto | DataSource::All => unreachable!("source must be resolved first"),
+        }
+    }
+
+    Ok((sessions, total_files))
+}
+
+fn claude_available(claude_dir: &std::path::Path) -> bool {
+    claude_dir.join("projects").exists()
+}
+
+fn codex_available(codex_dir: &std::path::Path) -> bool {
+    codex_dir.join("history.jsonl").exists()
 }
 
 fn period_label(period: &Period) -> String {
