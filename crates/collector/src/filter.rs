@@ -1,4 +1,4 @@
-use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Duration, Local, LocalResult, NaiveDate, TimeZone, Utc};
 use clap::ValueEnum;
 use std::time::SystemTime;
 
@@ -38,16 +38,11 @@ impl DateFilter {
                 to: None,
             }
         } else {
-            let now = Utc::now();
-            let start = now - Duration::days(i64::from(days));
-            let from = start
-                .date_naive()
-                .and_hms_opt(0, 0, 0)
-                .expect("valid time")
-                .and_utc();
+            let today = Local::now().date_naive();
+            let from_date = today - Duration::days(i64::from(days.saturating_sub(1)));
             Self {
-                from: Some(from),
-                to: None,
+                from: Some(local_date_start(from_date)),
+                to: Some(local_date_end(today)),
             }
         }
     }
@@ -57,7 +52,7 @@ impl DateFilter {
         let from = from
             .map(|s| {
                 NaiveDate::parse_from_str(s, "%Y-%m-%d")
-                    .map(|d| d.and_hms_opt(0, 0, 0).expect("valid time").and_utc())
+                    .map(local_date_start)
                     .map_err(|e| anyhow::anyhow!("Invalid --from date '{}': {}", s, e))
             })
             .transpose()?;
@@ -65,7 +60,7 @@ impl DateFilter {
         let to = to
             .map(|s| {
                 NaiveDate::parse_from_str(s, "%Y-%m-%d")
-                    .map(|d| d.and_hms_opt(23, 59, 59).expect("valid time").and_utc())
+                    .map(local_date_end)
                     .map_err(|e| anyhow::anyhow!("Invalid --to date '{}': {}", s, e))
             })
             .transpose()?;
@@ -75,7 +70,7 @@ impl DateFilter {
 
     /// Create a filter from a named period (last-week, last-month, etc.)
     pub fn from_period(period: &Period) -> Self {
-        let today = Utc::now().date_naive();
+        let today = Local::now().date_naive();
 
         let (from_date, to_date) = match period {
             Period::Today => (today, today),
@@ -132,8 +127,8 @@ impl DateFilter {
         };
 
         Self {
-            from: Some(from_date.and_hms_opt(0, 0, 0).expect("valid").and_utc()),
-            to: Some(to_date.and_hms_opt(23, 59, 59).expect("valid").and_utc()),
+            from: Some(local_date_start(from_date)),
+            to: Some(local_date_end(to_date)),
         }
     }
 
@@ -188,9 +183,35 @@ fn parse_timestamp(timestamp: &str) -> Option<DateTime<Utc>> {
     None
 }
 
+fn local_date_start(date: NaiveDate) -> DateTime<Utc> {
+    let naive = date.and_hms_opt(0, 0, 0).expect("valid local start time");
+    local_datetime_to_utc(naive)
+}
+
+fn local_date_end(date: NaiveDate) -> DateTime<Utc> {
+    let naive = date.and_hms_opt(23, 59, 59).expect("valid local end time");
+    local_datetime_to_utc(naive)
+}
+
+fn local_datetime_to_utc(naive: chrono::NaiveDateTime) -> DateTime<Utc> {
+    match Local.from_local_datetime(&naive) {
+        LocalResult::Single(dt) => dt.with_timezone(&Utc),
+        LocalResult::Ambiguous(earliest, _) => earliest.with_timezone(&Utc),
+        LocalResult::None => panic!("invalid local datetime: {naive}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Timelike;
+
+    fn local_timestamp(date: NaiveDate, hour: u32, minute: u32, second: u32) -> String {
+        let naive = date
+            .and_hms_opt(hour, minute, second)
+            .expect("valid local test time");
+        local_datetime_to_utc(naive).to_rfc3339()
+    }
 
     #[test]
     fn test_no_filter() {
@@ -202,8 +223,22 @@ mod tests {
     #[test]
     fn test_filter_recent() {
         let filter = DateFilter::from_days(1);
-        assert!(!filter.matches("2020-01-01T00:00:00Z"));
-        assert!(filter.matches("2099-01-01T00:00:00Z"));
+        let cutoff = filter.mtime_cutoff().expect("cutoff");
+        let cutoff_utc = DateTime::<Utc>::from(cutoff);
+        let cutoff_local = cutoff_utc.with_timezone(&Local);
+        assert_eq!(cutoff_local.hour(), 0);
+        assert_eq!(cutoff_local.minute(), 0);
+        assert_eq!(cutoff_local.second(), 0);
+
+        assert!(!filter.matches_unix_seconds(cutoff_utc.timestamp() - 1));
+        assert!(filter.matches_unix_seconds(cutoff_utc.timestamp()));
+        assert!(filter.matches(&local_timestamp(cutoff_local.date_naive(), 12, 0, 0)));
+        assert!(!filter.matches(&local_timestamp(
+            cutoff_local.date_naive() - Duration::days(1),
+            23,
+            59,
+            59
+        )));
     }
 
     #[test]
@@ -216,12 +251,20 @@ mod tests {
     fn test_unix_seconds_filter() {
         let filter =
             DateFilter::from_range(Some("2026-03-15"), Some("2026-03-17")).expect("valid range");
-        let inside = DateTime::parse_from_rfc3339("2026-03-15T09:30:00Z")
-            .expect("valid timestamp")
-            .timestamp();
-        let outside = DateTime::parse_from_rfc3339("2026-03-14T23:59:59Z")
-            .expect("valid timestamp")
-            .timestamp();
+        let inside = local_datetime_to_utc(
+            NaiveDate::from_ymd_opt(2026, 3, 15)
+                .expect("valid date")
+                .and_hms_opt(9, 30, 0)
+                .expect("valid time"),
+        )
+        .timestamp();
+        let outside = local_datetime_to_utc(
+            NaiveDate::from_ymd_opt(2026, 3, 14)
+                .expect("valid date")
+                .and_hms_opt(23, 59, 59)
+                .expect("valid time"),
+        )
+        .timestamp();
         assert!(filter.matches_unix_seconds(inside));
         assert!(!filter.matches_unix_seconds(outside));
     }
@@ -230,26 +273,81 @@ mod tests {
     fn test_range_filter() {
         let filter =
             DateFilter::from_range(Some("2026-03-15"), Some("2026-03-17")).expect("valid range");
-        assert!(filter.matches("2026-03-15T10:00:00Z"));
-        assert!(filter.matches("2026-03-16T12:00:00Z"));
-        assert!(filter.matches("2026-03-17T23:59:59Z"));
-        assert!(!filter.matches("2026-03-14T23:59:59Z"));
-        assert!(!filter.matches("2026-03-18T00:00:00Z"));
+        assert!(filter.matches(&local_timestamp(
+            NaiveDate::from_ymd_opt(2026, 3, 15).expect("valid date"),
+            10,
+            0,
+            0
+        )));
+        assert!(filter.matches(&local_timestamp(
+            NaiveDate::from_ymd_opt(2026, 3, 16).expect("valid date"),
+            12,
+            0,
+            0
+        )));
+        assert!(filter.matches(&local_timestamp(
+            NaiveDate::from_ymd_opt(2026, 3, 17).expect("valid date"),
+            23,
+            59,
+            59
+        )));
+        assert!(!filter.matches(&local_timestamp(
+            NaiveDate::from_ymd_opt(2026, 3, 14).expect("valid date"),
+            23,
+            59,
+            59
+        )));
+        assert!(!filter.matches(&local_timestamp(
+            NaiveDate::from_ymd_opt(2026, 3, 18).expect("valid date"),
+            0,
+            0,
+            0
+        )));
     }
 
     #[test]
     fn test_from_only() {
         let filter = DateFilter::from_range(Some("2026-03-15"), None).expect("valid");
-        assert!(!filter.matches("2026-03-14T23:59:59Z"));
-        assert!(filter.matches("2026-03-15T00:00:00Z"));
-        assert!(filter.matches("2099-01-01T00:00:00Z"));
+        assert!(!filter.matches(&local_timestamp(
+            NaiveDate::from_ymd_opt(2026, 3, 14).expect("valid date"),
+            23,
+            59,
+            59
+        )));
+        assert!(filter.matches(&local_timestamp(
+            NaiveDate::from_ymd_opt(2026, 3, 15).expect("valid date"),
+            0,
+            0,
+            0
+        )));
+        assert!(filter.matches(&local_timestamp(
+            NaiveDate::from_ymd_opt(2099, 1, 1).expect("valid date"),
+            0,
+            0,
+            0
+        )));
     }
 
     #[test]
     fn test_to_only() {
         let filter = DateFilter::from_range(None, Some("2026-03-17")).expect("valid");
-        assert!(filter.matches("2020-01-01T00:00:00Z"));
-        assert!(filter.matches("2026-03-17T23:59:59Z"));
-        assert!(!filter.matches("2026-03-18T00:00:00Z"));
+        assert!(filter.matches(&local_timestamp(
+            NaiveDate::from_ymd_opt(2020, 1, 1).expect("valid date"),
+            0,
+            0,
+            0
+        )));
+        assert!(filter.matches(&local_timestamp(
+            NaiveDate::from_ymd_opt(2026, 3, 17).expect("valid date"),
+            23,
+            59,
+            59
+        )));
+        assert!(!filter.matches(&local_timestamp(
+            NaiveDate::from_ymd_opt(2026, 3, 18).expect("valid date"),
+            0,
+            0,
+            0
+        )));
     }
 }

@@ -92,7 +92,8 @@ user メッセージの content は `string`（単純テキスト）または `a
 ```
 
 - `history.jsonl`: user prompt 履歴。`nippo` での Codex 収集の主データソース
-- `state_5.sqlite`: thread の `cwd` / `git_branch` / `model` などのメタデータ
+- `state_5.sqlite`: thread の `cwd` / `git_branch` / `rollout_path` などのメタデータ
+- `rollout_path` が指す rollout JSONL: assistant メッセージ、ツール呼び出し、トークン使用量、変更ファイル
 - `logs_2.sqlite`: 内部診断ログ。`nippo` では**日報の主データソースに使わない**
 
 ## Codex history.jsonl エントリ
@@ -112,13 +113,13 @@ user メッセージの content は `string`（単純テキスト）または `a
 ## Codex threads テーブル（使用列）
 
 ```sql
-SELECT id, cwd, git_branch, model FROM threads;
+SELECT id, cwd, git_branch, rollout_path FROM threads;
 ```
 
 - `id`: history の `session_id` と対応
 - `cwd`: プロジェクトパス
 - `git_branch`: ブランチ名
-- `model`: 使用モデル（現状は集計には未使用）
+- `rollout_path`: assistant 側の rollout JSONL へのパス
 
 ## コレクター CLI オプション
 
@@ -128,7 +129,7 @@ nippo collect [OPTIONS]
 
 | オプション | 説明 | デフォルト |
 |-----------|------|----------|
-| `--days N` | 過去N日分を収集（0 = 全期間） | `1` |
+| `--days N` | 今日を含む過去N日分を収集（ローカル日付基準、0 = 全期間） | `1` |
 | `--from YYYY-MM-DD` | 開始日（`--days` より優先） | なし |
 | `--to YYYY-MM-DD` | 終了日 | なし（今日） |
 | `--period PERIOD` | 名前付き期間（`--days` より優先） | なし |
@@ -142,6 +143,8 @@ nippo collect [OPTIONS]
 `--period` の値: `today`, `yesterday`, `this-week`, `last-week`, `week-before-last`, `this-month`, `last-month`, `month-before-last`
 
 優先順位: `--period` > `--from`/`--to` > `--days`
+
+日付境界は実行環境のローカルタイムゾーン基準。`--days 1` は「今日」、`--days 7` は「今日を含む過去7日」を意味する。
 
 `--source auto` の判定:
 

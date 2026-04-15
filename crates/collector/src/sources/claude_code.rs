@@ -350,6 +350,7 @@ pub fn parse_session_file(path: &Path, filter: &DateFilter) -> Result<Option<Raw
 
                     assistant_entries.push(ParsedAssistantEntry {
                         timestamp: assistant.timestamp.unwrap_or_default(),
+                        message_count: 1,
                         tool_uses,
                         input_tokens,
                         output_tokens,

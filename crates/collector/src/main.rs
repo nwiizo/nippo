@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 use crate::filter::{DateFilter, Period};
-use crate::output::{build_output, format_summary};
+use crate::output::{SourceMeta, build_output, format_summary};
 use crate::session::RawSession;
 use crate::sources::claude_code::{
     collect_sessions as collect_claude_sessions,
@@ -188,7 +188,20 @@ fn run() -> Result<()> {
                 sessions.truncate(max_sessions);
             }
 
-            let output = build_output(sessions, &label, total_files, stats_only);
+            let output = build_output(
+                sessions,
+                &label,
+                total_files,
+                stats_only,
+                SourceMeta {
+                    requested: source_name(&source).to_string(),
+                    resolved: selected_sources
+                        .iter()
+                        .map(source_name)
+                        .map(str::to_string)
+                        .collect(),
+                },
+            );
 
             match format {
                 OutputFormat::Json => {
@@ -287,6 +300,15 @@ fn period_label(period: &Period) -> String {
         Period::ThisMonth => "this month".to_string(),
         Period::LastMonth => "last month".to_string(),
         Period::MonthBeforeLast => "month before last".to_string(),
+    }
+}
+
+fn source_name(source: &DataSource) -> &'static str {
+    match source {
+        DataSource::Auto => "auto",
+        DataSource::Claude => "claude",
+        DataSource::Codex => "codex",
+        DataSource::All => "all",
     }
 }
 

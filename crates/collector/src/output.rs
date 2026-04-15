@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
-use crate::session::{RawSession, summarize_session};
+use crate::session::{RawSession, assistant_message_count, summarize_session};
 
 /// UTC タイムスタンプからローカル時間の時（HH）を抽出する
 fn extract_local_hour(timestamp: &str) -> Option<String> {
@@ -30,8 +30,15 @@ pub struct CollectorOutput {
 pub struct OutputMeta {
     pub generated_at: String,
     pub filter_label: String,
+    pub source: SourceMeta,
     pub total_sessions: usize,
     pub total_files_scanned: usize,
+}
+
+#[derive(Serialize)]
+pub struct SourceMeta {
+    pub requested: String,
+    pub resolved: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -191,6 +198,7 @@ pub fn build_output(
     filter_label: &str,
     total_files_scanned: usize,
     stats_only: bool,
+    source: SourceMeta,
 ) -> CollectorOutput {
     sessions.sort_by(|a, b| {
         let left = latest_timestamp(a);
@@ -213,6 +221,7 @@ pub fn build_output(
         meta: OutputMeta {
             generated_at: chrono::Utc::now().to_rfc3339(),
             filter_label: filter_label.to_string(),
+            source,
             total_sessions: sessions.len(),
             total_files_scanned,
         },
@@ -249,6 +258,7 @@ pub fn format_summary(output: &CollectorOutput) -> String {
             output.meta.filter_label
         )
         .ok();
+        writeln!(buf, "ソース: {}", format_source_line(&output.meta.source)).ok();
         writeln!(buf).ok();
         writeln!(buf, "ヒント:").ok();
         writeln!(buf, "  - 期間を広げてみてください: --days 7 や --days 30").ok();
@@ -261,6 +271,7 @@ pub fn format_summary(output: &CollectorOutput) -> String {
         return buf;
     }
 
+    writeln!(buf, "ソース: {}", format_source_line(&output.meta.source)).ok();
     writeln!(
         buf,
         "期間: {} | セッション: {} | プロジェクト: {} | 意思決定: {}",
@@ -323,6 +334,16 @@ pub fn format_summary(output: &CollectorOutput) -> String {
     buf
 }
 
+fn format_source_line(source: &SourceMeta) -> String {
+    let resolved = if source.resolved.is_empty() {
+        "なし".to_string()
+    } else {
+        source.resolved.join(", ")
+    };
+
+    format!("requested {} | resolved {}", source.requested, resolved)
+}
+
 fn compute_stats(sessions: &[RawSession], decisions: &[DecisionPoint]) -> AggregateStats {
     let mut total_user = 0usize;
     let mut total_assistant = 0usize;
@@ -347,10 +368,11 @@ fn compute_stats(sessions: &[RawSession], decisions: &[DecisionPoint]) -> Aggreg
     let mut project_accum: HashMap<String, ProjectAccum> = HashMap::new();
 
     for session in sessions {
+        let assistant_messages = assistant_message_count(&session.assistant_entries);
         total_user += session.user_entries.len();
-        total_assistant += session.assistant_entries.len();
+        total_assistant += assistant_messages;
 
-        let msg_count = session.user_entries.len() + session.assistant_entries.len();
+        let msg_count = session.user_entries.len() + assistant_messages;
         let pa = project_accum
             .entry(session.project.clone())
             .or_insert_with(|| ProjectAccum {
@@ -501,9 +523,49 @@ mod tests {
             },
         ];
 
-        let output = build_output(sessions, "today", 2, false);
+        let output = build_output(
+            sessions,
+            "today",
+            2,
+            false,
+            SourceMeta {
+                requested: "all".to_string(),
+                resolved: vec!["claude".to_string(), "codex".to_string()],
+            },
+        );
 
         assert_eq!(output.decisions.len(), 1);
         assert_eq!(output.stats.total_decisions, 1);
+    }
+
+    #[test]
+    fn includes_source_metadata_in_summary() {
+        let sessions = vec![RawSession {
+            session_id: "session-a".to_string(),
+            project: "nippo".to_string(),
+            project_path: "/tmp/nippo".to_string(),
+            git_branch: Some("main".to_string()),
+            user_entries: vec![ParsedUserEntry {
+                timestamp: "2026-04-01T10:00:00Z".to_string(),
+                text: "進める".to_string(),
+            }],
+            assistant_entries: Vec::<ParsedAssistantEntry>::new(),
+        }];
+
+        let output = build_output(
+            sessions,
+            "today",
+            1,
+            false,
+            SourceMeta {
+                requested: "auto".to_string(),
+                resolved: vec!["codex".to_string()],
+            },
+        );
+        let summary = format_summary(&output);
+
+        assert!(summary.contains("ソース: requested auto | resolved codex"));
+        assert_eq!(output.meta.source.requested, "auto");
+        assert_eq!(output.meta.source.resolved, vec!["codex".to_string()]);
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "nippo"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 description = "Claude Code session collector for daily reports and reflection"
 license = "MIT"
