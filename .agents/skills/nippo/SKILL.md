@@ -1,18 +1,18 @@
 ---
 name: "nippo"
-description: "Generate Japanese daily reports, reflection prompts, guides, reviews, and trend reports from Claude Code or Codex work logs. Use when the user asks for nippo, 日報, daily, reflection, guide, report, review, insight, trend, plan, ledger, or wants to summarize recent Claude Code/Codex work."
+description: "Generate Japanese daily reports, reflection prompts, guides, reviews, and trend reports from Claude Code, Codex, or GitHub Copilot work logs. Use when the user asks for nippo, 日報, daily, reflection, guide, report, review, insight, trend, plan, ledger, or wants to summarize recent agent work."
 ---
 
 # Nippo
 
-Use this skill when the user wants to turn recent Claude Code or Codex work into a report under `reports/`.
+Use this skill when the user wants to turn recent Claude Code, Codex, or GitHub Copilot work into a report under `reports/`.
 
 ## Inputs
 
 - mode: default, `daily`, `brief`, `reflection`, `guide`, `report`, `review`, `insight`, `trend`, `plan`, `ledger`
 - optional days
 - optional project filter
-- optional source override: `claude`, `codex`, `all`
+- optional source override: `claude`, `codex`, `copilot`, `all`
 
 Examples:
 
@@ -20,6 +20,7 @@ Examples:
 - `$nippo daily codex`
 - `$nippo daily claude`
 - `$nippo daily all`
+- `/nippo daily copilot`
 - `$nippo review 90 codex`
 
 ## Workflow
@@ -28,7 +29,7 @@ Examples:
 2. Otherwise prefer `nippo collect ...` when `nippo` is already installed.
 3. If neither is available, stop and tell the user to install `nippo`.
 4. Treat `daily` as an alias of the default daily report mode.
-5. Default to `--source auto`. Override when the user explicitly asks for `claude`, `codex`, or `all`. The collector removes deterministic prompt noise by default; do not pass `--include-prompt-noise` during report generation.
+5. Default to `--source auto`. Override when the user explicitly asks for `claude`, `codex`, `copilot`, or `all`. The collector removes deterministic prompt noise by default; do not pass `--include-prompt-noise` during report generation.
 6. For `brief`, save the summary output directly and stop.
 7. For `ledger`, do NOT call `nippo collect`. Run `nippo ledger` (or `cargo run -q -p nippo -- ledger`) which scans `reports/nippo-*.md` (daily reports) for the `## Unclear points` section, folds them into `reports/ledger.yaml`, and prints a CONVERGED / DIVERGENCE-SIGNAL / CONTINUE verdict. Relay that verdict back to the user verbatim; do not over-interpret. If the user asks for agent-config candidates, run `nippo ledger --export`: it writes recurring General Fix Rules to `reports/ledger-export.md`. Tell the user these are candidates only — a human must curate them before copying anything into CLAUDE.md / AGENTS.md.
 8. For `plan`, do NOT call `nippo collect`. Find the newest `reports/nippo-*.md` by the date in its filename and read it. Also read `reports/ledger.yaml` if present and use unresolved recurring General Fix Rules as candidate material. Read [docs/templates/plan-template.md](docs/templates/plan-template.md) and [docs/reflection-theory.md](docs/reflection-theory.md), present only 1-3 experiment candidates, leave the choice / reason / first-step fields blank for the user, save to `reports/plan-YYYY-MM-DD.md`, and report the path.
@@ -72,14 +73,15 @@ Examples:
 - For `reflection` and `guide`, also read the same-day `reports/nippo-YYYY-MM-DD.md` if it exists.
 - If the first token is neither a mode name, a number, nor a source selector, treat it as a project filter and run the default daily mode with `--project`.
 - Date boundaries follow the machine's local timezone. `--days 1` and `daily` mean the current local calendar day.
-- Treat one token matching `claude`, `codex`, or `all` as the source selector and pass it through to `--source`.
+- Treat one token matching `claude`, `codex`, `copilot`, or `all` as the source selector and pass it through to `--source`.
 - `Codex` report data comes from `history.jsonl`, `state_5.sqlite`, and rollout data referenced by `rollout_path`. Treat `logs_2.sqlite` as diagnostics only.
 - Codex-derived reports may have sparse assistant/tool metrics. State that explicitly instead of inventing numbers.
+- GitHub Copilot report data comes from `session-state/<session-id>/events.jsonl` with `workspace.yaml` as metadata fallback. Input-token events may be absent from persisted logs; state sparse token metrics explicitly instead of inventing numbers.
 - For daily reports, copy `meta.source`, `meta.total_sessions`, `stats.projects_worked_on`, and `stats.tool_frequency` from the collected JSON instead of inferring them from an older report.
 - In every mode that prints a date range, use `meta.period.from` and `meta.period.to`; do not recalculate the range from the execution date.
 - Cover the activity-heavy projects first. Use `stats.projects_worked_on` order (= `message_count` descending) and give the top 3-5 projects their own section before collapsing anything into `その他`.
 - If you show only a subset of `decisions`, explicitly state `全N件中M件を記載`.
-- The current Claude Code or Codex session is excluded by the collector. Do not manually subtract another session from `meta` or `stats`.
+- The current Claude Code, Codex, or GitHub Copilot session is excluded when its host session ID is available. Do not manually subtract another session from `meta` or `stats`.
 - Sanitize reference links before writing them. Do not copy malformed URL fragments with trailing Japanese text or punctuation.
 
 ## Improvement Issues

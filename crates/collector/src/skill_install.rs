@@ -54,6 +54,7 @@ const SHARED_ASSETS: &[EmbeddedAsset] = &[
 pub(crate) enum SkillTarget {
     Claude,
     Codex,
+    Copilot,
     All,
 }
 
@@ -61,6 +62,7 @@ pub(crate) enum SkillTarget {
 enum SkillKind {
     Claude,
     Codex,
+    Copilot,
 }
 
 #[derive(Clone, Copy)]
@@ -101,7 +103,8 @@ impl SkillTarget {
         match self {
             Self::Claude => &[SkillKind::Claude],
             Self::Codex => &[SkillKind::Codex],
-            Self::All => &[SkillKind::Claude, SkillKind::Codex],
+            Self::Copilot => &[SkillKind::Copilot],
+            Self::All => &[SkillKind::Claude, SkillKind::Codex, SkillKind::Copilot],
         }
     }
 }
@@ -111,6 +114,7 @@ impl SkillKind {
         match self {
             Self::Claude => "Claude Code",
             Self::Codex => "Codex",
+            Self::Copilot => "GitHub Copilot",
         }
     }
 
@@ -118,13 +122,21 @@ impl SkillKind {
         match self {
             Self::Claude => ".claude/skills/nippo",
             Self::Codex => ".agents/skills/nippo",
+            Self::Copilot => ".copilot/skills/nippo",
+        }
+    }
+
+    fn relative_source_path(self) -> &'static str {
+        match self {
+            Self::Claude => ".claude/skills/nippo",
+            Self::Codex | Self::Copilot => ".agents/skills/nippo",
         }
     }
 
     fn skill_contents(self) -> &'static str {
         match self {
             Self::Claude => CLAUDE_SKILL,
-            Self::Codex => CODEX_SKILL,
+            Self::Codex | Self::Copilot => CODEX_SKILL,
         }
     }
 
@@ -132,6 +144,7 @@ impl SkillKind {
         match self {
             Self::Claude => "Claude Code では `/nippo`",
             Self::Codex => "Codex では `$nippo`",
+            Self::Copilot => "GitHub Copilot では `/nippo`",
         }
     }
 }
@@ -176,7 +189,7 @@ pub(crate) fn install(
         let destination = home_dir.join(kind.relative_install_path());
         let source = repo_root
             .as_ref()
-            .map(|root| root.join(kind.relative_install_path()));
+            .map(|root| root.join(kind.relative_source_path()));
         match source.as_deref() {
             Some(source) if !source.is_dir() => {
                 bail!("skill source not found: {}", source.display());
@@ -349,7 +362,7 @@ mod tests {
             "[package]\nversion = \"0.1.4\"\nname = \"nippo\"\n",
         )?;
         for kind in [SkillKind::Claude, SkillKind::Codex] {
-            let source = repo.join(kind.relative_install_path());
+            let source = repo.join(kind.relative_source_path());
             fs::create_dir_all(&source)?;
             fs::write(source.join("SKILL.md"), kind.skill_contents())?;
         }
@@ -376,7 +389,7 @@ mod tests {
 
         install(home.path(), cwd.path(), SkillTarget::All, false)?;
 
-        for kind in [SkillKind::Claude, SkillKind::Codex] {
+        for kind in [SkillKind::Claude, SkillKind::Codex, SkillKind::Copilot] {
             let destination = home.path().join(kind.relative_install_path());
             assert_eq!(
                 fs::read_to_string(destination.join("SKILL.md"))?,
@@ -446,12 +459,12 @@ mod tests {
         install(home.path(), &nested_cwd, SkillTarget::All, false)?;
         install(home.path(), &nested_cwd, SkillTarget::All, false)?;
 
-        for kind in [SkillKind::Claude, SkillKind::Codex] {
+        for kind in [SkillKind::Claude, SkillKind::Codex, SkillKind::Copilot] {
             let destination = home.path().join(kind.relative_install_path());
             assert!(fs::symlink_metadata(&destination)?.file_type().is_symlink());
             assert!(symlink_points_to(
                 &destination,
-                &repo.path().join(kind.relative_install_path())
+                &repo.path().join(kind.relative_source_path())
             )?);
         }
         Ok(())

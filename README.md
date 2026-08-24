@@ -1,6 +1,6 @@
 # nippo
 
-Claude Code / Codex で作業するだけで日報ができる。
+Claude Code / Codex / GitHub Copilot で作業するだけで日報ができる。
 
 ```bash
 # Claude Code
@@ -8,10 +8,13 @@ Claude Code / Codex で作業するだけで日報ができる。
 
 # Codex
 $nippo
+
+# GitHub Copilot CLI
+/nippo
 ```
 
-これだけで、今日やったこと・判断したこと・改善点が `reports/nippo-20XX-YY-ZZ.md` にまとまる。手動で何も記録する必要はない。Claude Code / Codex の作業ログがそのまま日報になる。
-Claude Code では `/nippo`、Codex では `$nippo` で同じ日報生成フローを実行できる。
+これだけで、今日やったこと・判断したこと・改善点が `reports/nippo-20XX-YY-ZZ.md` にまとまる。手動で何も記録する必要はない。各エージェントの作業ログがそのまま日報になる。
+Claude Code と GitHub Copilot では `/nippo`、Codex では `$nippo` で同じ日報生成フローを実行できる。
 
 ---
 
@@ -25,7 +28,7 @@ Claude Code では `/nippo`、Codex では `$nippo` で同じ日報生成フロ�
 ## 今日の作業
 
 - 作業時間帯: 09:14 〜 18:32（ローカルタイムゾーン）
-- ソース: requested all | resolved claude, codex
+- ソース: requested all | resolved claude, codex, copilot
 - プロジェクト: nippo, oitoriaezu-owarasero
 - セッション数: 35
 
@@ -73,9 +76,9 @@ cargo install nippo
 nippo skill install
 ```
 
-これで Claude Code 用の `~/.claude/skills/nippo` と Codex 用の
-`~/.agents/skills/nippo` がセットアップされる。片方だけ入れる場合は
-`--target claude` または `--target codex` を指定する。既存のインストールを
+これで Claude Code 用の `~/.claude/skills/nippo`、Codex 用の
+`~/.agents/skills/nippo`、GitHub Copilot 用の `~/.copilot/skills/nippo` がセットアップされる。
+一つだけ入れる場合は `--target claude`、`--target codex`、`--target copilot` を指定する。既存のインストールを
 置き換える場合は `--force` を付ける。
 
 通常はバイナリに埋め込まれたスキルとテンプレートを書き出す。nippo の
@@ -90,13 +93,13 @@ nippo skill install
 Windows の git checkout ではクレート内の埋め込み用シンボリックリンクが
 通常ファイルになることがあるため、シンボリックリンクを有効にした環境で package を作成する。
 
-**要件**: [Claude Code](https://claude.com/claude-code) または Codex + Rust 1.85+
+**要件**: [Claude Code](https://claude.com/claude-code)、Codex、または GitHub Copilot CLI + Rust 1.88+
 
 ---
 
 ## 全コマンド
 
-Claude Code では `/nippo ...`、Codex では `$nippo ...` を使う。引数と挙動は同じ。
+Claude Code と GitHub Copilot では `/nippo ...`、Codex では `$nippo ...` を使う。引数と挙動は同じ。
 
 ### 日々の記録
 
@@ -172,7 +175,8 @@ CLAUDE.md / AGENTS.md 追記候補として `reports/ledger-export.md` に出力
 /nippo daily                  # /nippo と同じ（日報）
 /nippo daily codex            # Codex 履歴だけで日報
 /nippo daily claude           # Claude Code 履歴だけで日報
-/nippo daily all              # Claude Code + Codex を混ぜて日報
+/nippo daily copilot          # GitHub Copilot CLI 履歴だけで日報
+/nippo daily all              # 利用可能な全ソースを混ぜて日報
 /nippo 3                      # 過去3日分
 /nippo insight 30              # 過去30日分
 /nippo insight 30 nippo        # nippo プロジェクトのみ
@@ -185,7 +189,7 @@ CLAUDE.md / AGENTS.md 追記候補として `reports/ledger-export.md` に出力
 
 ## 定期実行
 
-NIPPO は端末内の Claude Code / Codex の作業履歴を読むため、ローカルファイルへ
+NIPPO は端末内の Claude Code / Codex / GitHub Copilot CLI の作業履歴を読むため、ローカルファイルへ
 アクセスできる定期タスクを使う。クラウド上で動くタスクはローカル履歴を読めない。
 最初に対象プロジェクトで `/nippo daily` または `$nippo daily` を手動実行し、
 `reports/` に日報が作られることを確認しておく。
@@ -235,7 +239,7 @@ CLI セッションを開いたまま一時的に繰り返すだけなら、`/lo
 
 - `reports/` は定期タスクの作業フォルダに作られる。Git worktree を使うと日報もその
   worktree 内に出力されるため、普段使うフォルダへ残したい場合は worktree を無効にする。
-- Claude Code と Codex の両方を使う場合は、どちらか一方で `/nippo daily all` または
+- 複数のエージェントを使う場合は、どれか一つで `/nippo daily all` または
   `$nippo daily all` を定期実行する。同じ日付の日報を両方から作ると、後の実行結果で上書きされる。
 - 定期タスクの指示やスキル展開だけで終わるセッションは、既定のプロンプトノイズ除外の
   対象になる。日報生成時は `--include-prompt-noise` や `--include-self` を付けない。
@@ -251,7 +255,8 @@ nippo collect --period today                     # 今日の JSON 出力
 nippo collect --days 1                           # 今日の JSON 出力（ローカル日付基準）
 nippo collect --days 7 --format summary          # テキストサマリー
 nippo collect --source codex --period today      # Codex 履歴のみ
-nippo collect --source all --days 7              # Claude Code + Codex
+nippo collect --source copilot --period today    # GitHub Copilot CLI 履歴のみ
+nippo collect --source all --days 7              # 利用可能な全ソース
 nippo collect --period last-week                 # 先週
 nippo collect --from 2026-03-01 --to 2026-03-15  # 日付範囲
 nippo collect --project ccswarm                  # プロジェクトフィルタ
@@ -281,7 +286,7 @@ JSON の `meta.period` は、指定した日付範囲の両端と境界の基準
 `--to` だけを指定した場合の開始日は `null` になる。
 
 同じ `session_id` の記録が複数ファイルに分かれている場合は、プロンプトを重複除去して
-1 セッションに統合する。Claude Code / Codex 内から実行したときは、ホストが公開する
+1 セッションに統合する。Claude Code / Codex / GitHub Copilot 内から実行したときは、ホストが公開する
 現在のセッション ID と完全一致する記録を既定で除外する。確認目的で含めたい場合だけ
 `--include-self` を指定する。
 
@@ -364,11 +369,12 @@ JSON の `render_helpers` には、既存の `sessions` と `stats` から機械
 [Rust] nippo collect
     ├─ ~/.claude/projects/**/*.jsonl を rayon で並列パース
     ├─ ~/.codex/history.jsonl + state_5.sqlite + rollout データを収集
+    ├─ ~/.copilot/session-state/*/events.jsonl + workspace.yaml を収集
     ├─ mtime プレフィルタ + 2パスデシリアライズ
     └─ JSON 出力
     │
     ▼
-[Claude] テンプレートに従いレポート生成
+[Agent] テンプレートに従いレポート生成
     │
     ▼
 reports/ に保存
@@ -383,9 +389,10 @@ nippo/
 │   ├── output.rs             # JSON / summary 出力
 │   └── sources/
 │       ├── claude_code.rs    # Claude Code JSONL パーサ
-│       └── codex.rs          # Codex 履歴パーサ
+│       ├── codex.rs          # Codex 履歴パーサ
+│       └── copilot.rs        # GitHub Copilot CLI イベントパーサ
 ├── .agents/skills/nippo/
-│   └── SKILL.md              # Codex 用 skill
+│   └── SKILL.md              # Codex / GitHub Copilot 共通 skill
 ├── .claude/skills/nippo/
 │   ├── SKILL.md              # スキル定義
 │   └── docs -> ../../../docs # テンプレートへのシンボリックリンク

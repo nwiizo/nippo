@@ -2,7 +2,7 @@
 name: nippo
 description: >
   ユーザーが日報・振り返り・作業まとめ・週報・自己評価を求めたときに、
-  Claude Code / Codex のセッションログから日報・リフレクション・インサイトを生成する。
+  Claude Code / Codex / GitHub Copilot のセッションログから日報・リフレクション・インサイトを生成する。
   /nippo と /nippo daily で日報、/nippo reflection で内省の問い、/nippo guide で学習支援、
   /nippo report で進捗報告、/nippo review で自己評価、/nippo insight で深い振り返り、
   /nippo trend で長期変化分析、/nippo plan で朝の行動実験、
@@ -26,7 +26,7 @@ context: fork
 - 出力先は cwd の `reports/` 配下（なければ `mkdir -p reports`）
 - ファイル名: `reports/{モード}-YYYY-MM-DD.md`（期間 N>1 なら `-Nd` を付与）
 - 日付境界は実行環境のローカルタイムゾーン基準。`--days 1` と `daily` は「今日のローカル日付」を意味する
-- デフォルト source は `auto`。Codex では `history.jsonl` と `state_5.sqlite`、および `rollout_path` が指す rollout データを使う。`logs_2.sqlite` は診断用で、日報の主データソースにはしない
+- デフォルト source は `auto`。Codex では `history.jsonl` と `state_5.sqlite`、および `rollout_path` が指す rollout データを使う。GitHub Copilot では `session-state/<session-id>/events.jsonl` と `workspace.yaml` を使う。`logs_2.sqlite` は診断用で、日報の主データソースにはしない
 - このリポジトリ内で実行している場合は、グローバル `nippo` より `cargo run -q -p nippo -- collect ...` を優先する（ローカル実装が新しい可能性があるため）
 - モードと引数を決める前にデータを先読みしない。同じ条件の収集は 1 回だけ実行する
 - 収集 JSON の一時ファイル `tmp/nippo-raw.json` はレポート保存後に必ず削除する。収集や生成に失敗して停止する場合も削除する
@@ -36,9 +36,10 @@ context: fork
 - 対象期間を記載する全モードで `meta.period.from` と `meta.period.to` を使い、実行日から日付を計算し直さない
 - 日報本文のプロジェクト節は `stats.projects_worked_on` の順（`message_count` 降順）で選ぶ。上位 3〜5 プロジェクトは必ず個別に触れ、残りだけを `その他` にまとめる
 - Codex 由来のレポートは assistant/tool のメトリクスが疎になることがある。数値を捏造せず、疎であることを明示する
+- GitHub Copilot 由来のレポートは永続ログに input token イベントがない場合がある。数値を捏造せず、疎であることを明示する
 - source の解決やデータ欠損について質問されたら `${CLAUDE_SKILL_DIR}/docs/data-sources.md` を Read する
 - `decisions` を一部だけ載せる場合は「全N件中M件を記載」と明記する
-- 現在の Claude Code / Codex セッションはコレクターが除外するため、`meta` や `stats` から手作業でセッション数を引かない
+- 現在の Claude Code / Codex / GitHub Copilot セッションはホストのセッション ID が取得できる場合にコレクターが除外するため、`meta` や `stats` から手作業でセッション数を引かない
 - 参考リンクの URL はそのまま貼らず、末尾の日本語や句読点を落として正しい URL だけを残す
 
 ## モード決定
@@ -62,7 +63,7 @@ context: fork
 
 `daily` は `(空)` と同じ日報モードのエイリアス。出力ファイル名は `reports/nippo-YYYY-MM-DD.md` を使う。
 
-残りトークンのうち `claude` / `codex` / `all` は `--source` に渡す。数値があれば `--days` を置換。それ以外の文字列は `--project` に渡す。先頭単語がモード名・数値・source のいずれでもない場合は日報モードとして扱い、その単語を `--project` に渡す。
+残りトークンのうち `claude` / `codex` / `copilot` / `all` は `--source` に渡す。数値があれば `--days` を置換。それ以外の文字列は `--project` に渡す。先頭単語がモード名・数値・source のいずれでもない場合は日報モードとして扱い、その単語を `--project` に渡す。
 
 ## 収集と生成
 

@@ -1,7 +1,7 @@
 # nippo
 
-Claude Code / Codex の作業履歴から日報・リフレクションを生成するリポジトリ。
-Rust バイナリがデータ収集を担当し、Claude Code と Codex の skill がレポート生成を担当する。
+Claude Code / Codex / GitHub Copilot の作業履歴から日報・リフレクションを生成するリポジトリ。
+Rust バイナリがデータ収集を担当し、各エージェントの skill がレポート生成を担当する。
 
 ## Read First
 
@@ -17,7 +17,7 @@ cargo clippy -p nippo -- -D warnings
 cargo test -p nippo
 ```
 
-- Rust edition 2024、Rust 1.85+ 前提
+- Rust edition 2024、Rust 1.88+ 前提
 - `.unwrap()` は避け、`anyhow::Result` と `?` を使う
 
 ## Change Map
@@ -28,8 +28,9 @@ cargo test -p nippo
 - `crates/collector/src/session.rs`: source 共通のセッション表現
 - `crates/collector/src/sources/claude_code.rs`: Claude Code パーサ
 - `crates/collector/src/sources/codex.rs`: Codex 履歴パーサ
+- `crates/collector/src/sources/copilot.rs`: GitHub Copilot CLI イベントパーサ
 - `.claude/skills/nippo/SKILL.md`: Claude Code 用 skill
-- `.agents/skills/nippo/SKILL.md`: Codex 用 skill
+- `.agents/skills/nippo/SKILL.md`: Codex / GitHub Copilot 共通 skill
 
 ## Rules
 

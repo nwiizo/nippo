@@ -25,6 +25,10 @@ use crate::sources::codex::{
     collect_sessions as collect_codex_sessions,
     discover_history_files as discover_codex_history_files,
 };
+use crate::sources::copilot::{
+    collect_sessions as collect_copilot_sessions,
+    discover_session_files as discover_copilot_session_files,
+};
 
 #[derive(Clone, ValueEnum)]
 enum OutputFormat {
@@ -42,13 +46,15 @@ enum DataSource {
     Claude,
     /// Read Codex history and thread metadata
     Codex,
-    /// Merge Claude Code and Codex history
+    /// Read GitHub Copilot CLI session logs
+    Copilot,
+    /// Merge all available session sources
     All,
 }
 
 #[derive(Subcommand)]
 enum SkillAction {
-    /// Install the nippo skill for Claude Code, Codex, or both
+    /// Install the nippo skill for Claude Code, Codex, GitHub Copilot, or all
     Install {
         /// Skill host to install for
         #[arg(long, value_enum, default_value = "all")]
@@ -64,9 +70,9 @@ enum SkillAction {
 #[command(
     name = "nippo",
     version,
-    about = "Claude Code / Codex session collector for daily reports",
+    about = "Claude Code / Codex / GitHub Copilot session collector for daily reports",
     long_about = "\
-Claude Code / Codex のセッションログを収集・集計するツール。
+Claude Code / Codex / GitHub Copilot のセッションログを収集・集計するツール。
 nippo スキルのデータ収集バックエンドとして動作する。
 
 単体でも使える:
@@ -75,11 +81,12 @@ nippo スキルのデータ収集バックエンドとして動作する。
   nippo collect --period last-week        先週のデータ
   nippo collect --project myapp           プロジェクトで絞り込み
   nippo collect --source codex            Codex 履歴のみ
+  nippo collect --source copilot          GitHub Copilot CLI 履歴のみ
   nippo collect --include-prompt-noise --include-self
                                           除外前の記録を確認
 
 スキルをセットアップする:
-  nippo skill install                     Claude Code + Codex
+  nippo skill install                     Claude Code + Codex + GitHub Copilot
 
 スキルと組み合わせて使う:
   /nippo              日報（事実 + 意思決定 + 用語レビュー）
@@ -102,7 +109,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Collect session data from Claude Code or Codex logs
+    /// Collect session data from Claude Code, Codex, or GitHub Copilot logs
     Collect {
         /// Number of days to look back (0 = all time)
         #[arg(long, default_value = "1")]
@@ -132,7 +139,7 @@ enum Commands {
         #[arg(long)]
         include_prompt_noise: bool,
 
-        /// Include the Claude Code or Codex session running this command
+        /// Include the host agent session running this command
         #[arg(long)]
         include_self: bool,
 
@@ -144,7 +151,7 @@ enum Commands {
         #[arg(long, value_enum, default_value = "json")]
         format: OutputFormat,
 
-        /// Session source (auto/claude/codex/all)
+        /// Session source (auto/claude/codex/copilot/all)
         #[arg(long, value_enum, default_value = "auto")]
         source: DataSource,
 
@@ -155,6 +162,10 @@ enum Commands {
         /// Custom Codex data directory (default: ~/.codex)
         #[arg(long)]
         codex_dir: Option<PathBuf>,
+
+        /// Custom GitHub Copilot data directory (default: ~/.copilot)
+        #[arg(long)]
+        copilot_dir: Option<PathBuf>,
     },
 
     /// Fold structured `## Unclear points` from past reports into a
@@ -216,10 +227,12 @@ fn run() -> Result<()> {
             source,
             claude_dir,
             codex_dir,
+            copilot_dir,
         } => {
             let home_dir = dirs_home();
             let claude_dir = claude_dir.unwrap_or_else(|| home_dir.join(".claude"));
             let codex_dir = codex_dir.unwrap_or_else(|| home_dir.join(".codex"));
+            let copilot_dir = copilot_dir.unwrap_or_else(|| home_dir.join(".copilot"));
 
             // Priority: --period > --from/--to > --days
             let filter = if let Some(ref period) = period {
@@ -230,9 +243,14 @@ fn run() -> Result<()> {
                 DateFilter::from_days(days)
             };
 
-            let selected_sources = resolve_sources(&source, &claude_dir, &codex_dir);
-            let (mut sessions, total_files) =
-                collect_from_sources(&selected_sources, &claude_dir, &codex_dir, &filter)?;
+            let selected_sources = resolve_sources(&source, &claude_dir, &codex_dir, &copilot_dir);
+            let (mut sessions, total_files) = collect_from_sources(
+                &selected_sources,
+                &claude_dir,
+                &codex_dir,
+                &copilot_dir,
+                &filter,
+            )?;
 
             if !include_self {
                 retain_non_current_sessions(&mut sessions, &current_host_session_ids());
@@ -399,11 +417,13 @@ fn resolve_sources(
     source: &DataSource,
     claude_dir: &std::path::Path,
     codex_dir: &std::path::Path,
+    copilot_dir: &std::path::Path,
 ) -> Vec<DataSource> {
     match source {
-        DataSource::Auto => vec![detect_auto_source(claude_dir, codex_dir)],
+        DataSource::Auto => vec![detect_auto_source(claude_dir, codex_dir, copilot_dir)],
         DataSource::Claude => vec![DataSource::Claude],
         DataSource::Codex => vec![DataSource::Codex],
+        DataSource::Copilot => vec![DataSource::Copilot],
         DataSource::All => {
             let mut sources = Vec::new();
             if claude_available(claude_dir) {
@@ -412,15 +432,25 @@ fn resolve_sources(
             if codex_available(codex_dir) {
                 sources.push(DataSource::Codex);
             }
+            if copilot_available(copilot_dir) {
+                sources.push(DataSource::Copilot);
+            }
             if sources.is_empty() {
-                sources.push(detect_auto_source(claude_dir, codex_dir));
+                sources.push(detect_auto_source(claude_dir, codex_dir, copilot_dir));
             }
             sources
         }
     }
 }
 
-fn detect_auto_source(claude_dir: &std::path::Path, codex_dir: &std::path::Path) -> DataSource {
+fn detect_auto_source(
+    claude_dir: &std::path::Path,
+    codex_dir: &std::path::Path,
+    copilot_dir: &std::path::Path,
+) -> DataSource {
+    if std::env::var_os("COPILOT_SESSION_ID").is_some() && copilot_available(copilot_dir) {
+        return DataSource::Copilot;
+    }
     if std::env::var_os("CODEX_THREAD_ID").is_some() && codex_available(codex_dir) {
         return DataSource::Codex;
     }
@@ -430,6 +460,9 @@ fn detect_auto_source(claude_dir: &std::path::Path, codex_dir: &std::path::Path)
     if codex_available(codex_dir) {
         return DataSource::Codex;
     }
+    if copilot_available(copilot_dir) {
+        return DataSource::Copilot;
+    }
     DataSource::Claude
 }
 
@@ -437,6 +470,7 @@ fn collect_from_sources(
     sources: &[DataSource],
     claude_dir: &std::path::Path,
     codex_dir: &std::path::Path,
+    copilot_dir: &std::path::Path,
     filter: &DateFilter,
 ) -> Result<(Vec<RawSession>, usize)> {
     let mut sessions = Vec::new();
@@ -451,6 +485,10 @@ fn collect_from_sources(
             DataSource::Codex => {
                 total_files += discover_codex_history_files(codex_dir)?.len();
                 sessions.extend(collect_codex_sessions(codex_dir, filter)?);
+            }
+            DataSource::Copilot => {
+                total_files += discover_copilot_session_files(copilot_dir)?.len();
+                sessions.extend(collect_copilot_sessions(copilot_dir, filter)?);
             }
             DataSource::Auto | DataSource::All => unreachable!("source must be resolved first"),
         }
@@ -468,11 +506,15 @@ fn retain_non_current_sessions(sessions: &mut Vec<RawSession>, current_ids: &[St
 }
 
 fn current_host_session_ids() -> Vec<String> {
-    ["CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"]
-        .into_iter()
-        .filter_map(|name| std::env::var(name).ok())
-        .filter(|session_id| !session_id.is_empty())
-        .collect()
+    [
+        "CLAUDE_CODE_SESSION_ID",
+        "CODEX_THREAD_ID",
+        "COPILOT_SESSION_ID",
+    ]
+    .into_iter()
+    .filter_map(|name| std::env::var(name).ok())
+    .filter(|session_id| !session_id.is_empty())
+    .collect()
 }
 
 fn claude_available(claude_dir: &std::path::Path) -> bool {
@@ -481,6 +523,10 @@ fn claude_available(claude_dir: &std::path::Path) -> bool {
 
 fn codex_available(codex_dir: &std::path::Path) -> bool {
     codex_dir.join("history.jsonl").exists()
+}
+
+fn copilot_available(copilot_dir: &std::path::Path) -> bool {
+    copilot_dir.join("session-state").is_dir()
 }
 
 fn period_label(period: &Period) -> String {
@@ -501,6 +547,7 @@ fn source_name(source: &DataSource) -> &'static str {
         DataSource::Auto => "auto",
         DataSource::Claude => "claude",
         DataSource::Codex => "codex",
+        DataSource::Copilot => "copilot",
         DataSource::All => "all",
     }
 }
@@ -582,5 +629,29 @@ mod tests {
         };
         assert!(include_prompt_noise);
         assert!(include_self);
+    }
+
+    #[test]
+    fn parses_copilot_source_and_custom_directory() {
+        let cli = Cli::try_parse_from([
+            "nippo",
+            "collect",
+            "--source",
+            "copilot",
+            "--copilot-dir",
+            "/tmp/copilot-home",
+        ])
+        .expect("parse Copilot flags");
+
+        let Commands::Collect {
+            source,
+            copilot_dir,
+            ..
+        } = cli.command
+        else {
+            panic!("expected collect command");
+        };
+        assert!(matches!(source, DataSource::Copilot));
+        assert_eq!(copilot_dir, Some(PathBuf::from("/tmp/copilot-home")));
     }
 }

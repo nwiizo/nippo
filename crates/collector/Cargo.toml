@@ -2,10 +2,11 @@
 name = "nippo"
 version = "0.1.6"
 edition = "2024"
-description = "Claude Code session collector for daily reports and reflection"
+rust-version = "1.88"
+description = "Claude Code, Codex, and GitHub Copilot session collector for daily reports"
 license = "MIT"
 repository = "https://github.com/nwiizo/nippo"
-keywords = ["claude", "daily-report", "reflection", "productivity"]
+keywords = ["copilot", "daily-report", "reflection", "productivity"]
 categories = ["command-line-utilities"]
 
 [[bin]]

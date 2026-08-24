@@ -1,6 +1,6 @@
 # データソース仕様
 
-Claude Code / Codex のセッションデータの保存場所と形式。
+Claude Code / Codex / GitHub Copilot CLI のセッションデータの保存場所と形式。
 
 ## 保存場所
 
@@ -121,6 +121,36 @@ SELECT id, cwd, git_branch, rollout_path FROM threads;
 - `git_branch`: ブランチ名
 - `rollout_path`: assistant 側の rollout JSONL へのパス
 
+## GitHub Copilot CLI の保存場所
+
+```
+~/.copilot/session-state/{session-id}/events.jsonl
+~/.copilot/session-state/{session-id}/workspace.yaml
+```
+
+- `events.jsonl`: セッション再開に使われる完全なイベントログ。`nippo` の主データソース
+- `workspace.yaml`: `cwd` / `branch` / `repository` のメタデータ補完
+- `session-store.db`: 横断検索用インデックス。`nippo` では主データソースに使わない
+
+### Copilot イベント（収集対象）
+
+| type | 用途 | nippo での扱い |
+|------|------|---------------|
+| `session.start` | session ID と workspace context | メタデータとして使用 |
+| `session.context_changed` | cwd / repository / branch の変更 | メタデータとして使用 |
+| `user.message` | ユーザーメッセージ | **収集対象** |
+| `assistant.message` | 完成したアシスタント応答 | **収集対象** |
+| `assistant.usage` | API 呼び出しの token 使用量 | 保存されている場合のみ input token を収集 |
+| `tool.execution_start` | 実行されたツールと引数 | **収集対象** |
+| その他 | reasoning、進捗、権限、tool result 等 | スキップ |
+
+全イベント共通の `timestamp` は ISO 8601。`data.content`、`data.toolName`、
+`data.arguments` など、イベント型ごとの確定フィールドだけを読む。`agentId` がある
+サブエージェントイベントは、Claude Code の sidechain と同様に二重集計を避けるため除外する。
+
+Copilot の永続ログでは ephemeral な `assistant.usage` が存在しないことがある。
+その場合、`assistant.message.data.outputTokens` は集計できるが input token は 0 のままになる。
+
 ## コレクター CLI オプション
 
 ```bash
@@ -136,12 +166,13 @@ nippo collect [OPTIONS]
 | `--project NAME` | プロジェクト名でフィルタ（部分一致） | なし |
 | `--stats-only` | セッション詳細を省略し統計のみ出力 | `false` |
 | `--include-prompt-noise` | 定型通知・画像プレースホルダ・短い肯定応答なども含める | `false` |
-| `--include-self` | コマンドを実行している Claude Code / Codex セッションも含める | `false` |
+| `--include-self` | コマンドを実行しているホストエージェントのセッションも含める | `false` |
 | `--max-sessions N` | 出力するセッション数の上限（0 = 無制限） | `0` |
 | `--format json\|summary` | 出力形式 | `json` |
-| `--source auto\|claude\|codex\|all` | データソース選択 | `auto` |
+| `--source auto\|claude\|codex\|copilot\|all` | データソース選択 | `auto` |
 | `--claude-dir PATH` | Claude データディレクトリ | `~/.claude` |
 | `--codex-dir PATH` | Codex データディレクトリ | `~/.codex` |
+| `--copilot-dir PATH` | GitHub Copilot データディレクトリ | `~/.copilot` |
 
 `--period` の値: `today`, `yesterday`, `this-week`, `last-week`, `week-before-last`, `this-month`, `last-month`, `month-before-last`
 
@@ -166,7 +197,7 @@ compact の導入文、短い肯定応答を user エントリから除外する
 一致する重複を除外してから、メッセージ・ツール使用・トークンを合算する。
 `--max-sessions` は統合後のセッションを最新順に並べてから適用する。
 
-`CLAUDE_CODE_SESSION_ID` または `CODEX_THREAD_ID` が設定されている場合、その値と
+`CLAUDE_CODE_SESSION_ID`、`CODEX_THREAD_ID`、`COPILOT_SESSION_ID` のいずれかが設定されている場合、その値と
 完全一致するセッションは既定で除外する。時刻やメッセージ数を使った推測では除外しない。
 
 JSON の `render_helpers` はローカル時刻のセッション範囲、30 分未満の間隔でつながる
@@ -175,7 +206,9 @@ JSON の `render_helpers` はローカル時刻のセッション範囲、30 分
 
 `--source auto` の判定:
 
+- `COPILOT_SESSION_ID` があり Copilot データもあるときは `copilot`
 - `CODEX_THREAD_ID` があるときは `codex`
 - それ以外は Claude Code のデータがあれば `claude`
 - Claude がなく Codex があれば `codex`
-- 明示的に両方混ぜたいときだけ `--source all`
+- Claude と Codex がなく Copilot があれば `copilot`
+- 利用可能なソースをすべて混ぜたいときは `--source all`
