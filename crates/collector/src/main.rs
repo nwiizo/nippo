@@ -71,9 +71,9 @@ enum SkillAction {
 #[command(
     name = "nippo",
     version,
-    about = "Claude Code / Codex session collector for daily reports",
+    about = "Claude Code / Codex / opencode session collector for daily reports",
     long_about = "\
-Claude Code / Codex のセッションログを収集・集計するツール。
+Claude Code / Codex / opencode のセッションログを収集・集計するツール。
 nippo スキルのデータ収集バックエンドとして動作する。
 
 単体でも使える:
@@ -109,7 +109,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Collect session data from Claude Code or Codex logs
+    /// Collect session data from Claude Code, Codex, or opencode logs
     Collect {
         /// Number of days to look back (0 = all time)
         #[arg(long, default_value = "1")]
@@ -151,7 +151,7 @@ enum Commands {
         #[arg(long, value_enum, default_value = "json")]
         format: OutputFormat,
 
-        /// Session source (auto/claude/codex/all)
+        /// Session source (auto/claude/codex/opencode/all)
         #[arg(long, value_enum, default_value = "auto")]
         source: DataSource,
 

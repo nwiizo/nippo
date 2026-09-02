@@ -2,7 +2,7 @@
 name: nippo
 description: >
   ユーザーが日報・振り返り・作業まとめ・週報・自己評価を求めたときに、
-  Claude Code / Codex のセッションログから日報・リフレクション・インサイトを生成する。
+  Claude Code / Codex / opencode のセッションログから日報・リフレクション・インサイトを生成する。
   /nippo と /nippo daily で日報、/nippo reflection で内省の問い、/nippo guide で学習支援、
   /nippo report で進捗報告、/nippo review で自己評価、/nippo insight で深い振り返り、
   /nippo trend で長期変化分析、/nippo plan で朝の行動実験、

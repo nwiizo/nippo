@@ -1,11 +1,11 @@
 ---
 name: "nippo"
-description: "Generate Japanese daily reports, reflection prompts, guides, reviews, and trend reports from Claude Code or Codex work logs. Use when the user asks for nippo, 日報, daily, reflection, guide, report, review, insight, trend, plan, ledger, or wants to summarize recent Claude Code/Codex work."
+description: "Generate Japanese daily reports, reflection prompts, guides, reviews, and trend reports from Claude Code, Codex, or opencode work logs. Use when the user asks for nippo, 日報, daily, reflection, guide, report, review, insight, trend, plan, ledger, or wants to summarize recent agent work."
 ---
 
 # Nippo
 
-Use this skill when the user wants to turn recent Claude Code or Codex work into a report under `reports/`.
+Use this skill when the user wants to turn recent Claude Code, Codex, or opencode work into a report under `reports/`.
 
 ## Inputs
 

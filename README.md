@@ -1,10 +1,9 @@
 # nippo
 
-Claude Code / Codex の作業履歴から、日報・振り返り・進捗報告を生成するツールです。
+Claude Code / Codex / opencode の作業履歴から、日報・振り返り・進捗報告を生成するツールです。
 
-Rust 製の collector がローカルのセッション履歴を収集し、Claude Code / Codex の
-`nippo` skill が用途に合ったレポートへまとめます。日々の作業を別の場所へ
-書き写す必要はありません。
+Rust 製の collector が各ツールのローカルなセッション履歴を収集し、Claude Code / Codex の
+`nippo` skill が用途に合ったレポートへまとめます。日々の作業を別の場所へ書き写す必要はありません。
 
 ## クイックスタート
 
@@ -116,8 +115,8 @@ nippo のリポジトリ内から `skill install` を実行した場合は、che
 /nippo review 180         # 過去180日の自己評価
 /nippo daily claude       # Claude Code の履歴だけを使う
 /nippo daily codex        # Codex の履歴だけを使う
-/nippo daily all          # Claude Code と Codex の履歴をまとめる
-/nippo daily yesterday all  # 昨日分を Claude Code と Codex からまとめる
+/nippo daily all          # 利用できる全 source の履歴をまとめる
+/nippo daily yesterday all  # 利用できる全 source から昨日分をまとめる
 $nippo daily yesterday all  # 同じことを Codex 側から
 ```
 
@@ -199,7 +198,7 @@ Claude Code Desktop の **Code** タブで **Routines** → **New routine** → 
 
 - `reports/` はタスクの作業フォルダに作成されます。
 - 普段使う checkout に日報を残す場合は worktree を無効にします。
-- 両方の source を使う場合は、どちらか一方で `daily all` を実行します。
+- 複数の source を使う場合は、どちらか一方の skill で `daily all` を実行します。
 - 同じ日付の日報を複数回生成すると、後の結果で上書きされます。
 
 ## Rust CLI
@@ -235,19 +234,19 @@ nippo collect --days 0                # 全期間
 ## 仕組み
 
 ```text
-Claude Code / Codex のローカル履歴
-                  |
-                  v
-          nippo collect (Rust)
-                  |
-                  v
-             collector JSON
-                  |
-                  v
-       nippo skill + docs/templates
-                  |
-                  v
-              reports/*.md
+Claude Code / Codex / opencode のローカル履歴
+                      |
+                      v
+              nippo collect (Rust)
+                      |
+                      v
+                 collector JSON
+                      |
+                      v
+           nippo skill + docs/templates
+                      |
+                      v
+                  reports/*.md
 ```
 
 collector はデータ収集と決定的な集計だけを担当します。文章の要約や振り返りは、
@@ -257,6 +256,7 @@ collector はデータ収集と決定的な集計だけを担当します。文�
 
 - Claude Code: `~/.claude/projects/**/*.jsonl`
 - Codex: `~/.codex/history.jsonl`、`state_5.sqlite`、thread が参照する rollout JSONL
+- opencode: `~/.local/share/opencode/opencode.db`、`opencode-dev.db`
 - `logs_2.sqlite` は診断用で、日報の主データソースには使いません
 
 ## テンプレートを変更する
@@ -297,8 +297,8 @@ Claude Code 組み込みの `/insights` は、設定やフックなど Claude Co
 
 ## データの扱い
 
-- collector はローカルの履歴を読み取り、使用中の Claude Code / Codex がレポートへ
-  まとめて `reports/` に保存します。
+- collector はローカルの履歴を読み取り、Claude Code / Codex の skill がレポートへまとめて
+  `reports/` に保存します。
 - `reports/*.md` と `reports/ledger.yaml` は `.gitignore` の対象です。
 - レポートには作業内容や内省が含まれるため、共有前に内容を確認してください。
 
