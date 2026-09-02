@@ -117,7 +117,13 @@ nippo のリポジトリ内から `skill install` を実行した場合は、che
 /nippo daily claude       # Claude Code の履歴だけを使う
 /nippo daily codex        # Codex の履歴だけを使う
 /nippo daily all          # Claude Code と Codex の履歴をまとめる
+/nippo daily yesterday all  # 昨日分を Claude Code と Codex からまとめる
+$nippo daily yesterday all  # 同じことを Codex 側から
 ```
+
+`yesterday` の他に `today` / `this-week` / `last-week` / `week-before-last` /
+`this-month` / `last-month` / `month-before-last` を渡すと、`--period` として
+扱われます。
 
 source を指定しない場合は `auto` です。出力先は常にコマンドを実行した
 ディレクトリの `reports/` で、同じ日付・同じモードのファイルは最新の結果で
