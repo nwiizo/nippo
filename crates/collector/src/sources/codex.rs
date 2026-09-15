@@ -1,7 +1,7 @@
 //! Codex 履歴のコレクター。
 //!
-//! `~/.codex/history.jsonl` の user prompt と
-//! `~/.codex/state_5.sqlite` の thread メタデータ / rollout_path を結合して、
+//! `~/.codex/history.jsonl` と rollout JSONL の user prompt を
+//! `~/.codex/state_5.sqlite` の thread メタデータと結合して、
 //! 日報生成に必要なセッション一覧へ変換する。
 
 use anyhow::{Context, Result};
@@ -15,7 +15,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use crate::filter::DateFilter;
-use crate::session::{ParsedAssistantEntry, ParsedUserEntry, RawSession};
+use crate::session::{ParsedAssistantEntry, ParsedUserEntry, RawSession, deduplicate_user_entries};
 
 const MAX_PROMPT_LEN: usize = 500;
 
@@ -33,20 +33,18 @@ struct ThreadMeta {
 }
 
 pub fn discover_history_files(codex_dir: &Path) -> Result<Vec<PathBuf>> {
-    let history_path = codex_dir.join("history.jsonl");
-    if !history_path.exists() {
+    let files: Vec<PathBuf> = ["history.jsonl", "state_5.sqlite"]
+        .into_iter()
+        .map(|name| codex_dir.join(name))
+        .filter(|path| path.exists())
+        .collect();
+    if files.is_empty() {
         anyhow::bail!(
             "Codex の履歴データが見つかりません: {}\n\n\
-             Codex を使用すると、user prompt 履歴は history.jsonl に保存されます。\n\
+             history.jsonl または state_5.sqlite が必要です。\n\
              カスタムディレクトリを指定する場合は --codex-dir オプションを使用してください。",
-            history_path.display()
+            codex_dir.display()
         );
-    }
-
-    let mut files = vec![history_path];
-    let state_path = codex_dir.join("state_5.sqlite");
-    if state_path.exists() {
-        files.push(state_path);
     }
 
     Ok(files)
@@ -131,13 +129,17 @@ fn unix_seconds_to_rfc3339(timestamp: i64) -> Option<String> {
     DateTime::<Utc>::from_timestamp(timestamp, 0).map(|dt| dt.to_rfc3339())
 }
 
-fn collect_rollout_entries(rollout_path: &Path, filter: &DateFilter) -> Vec<ParsedAssistantEntry> {
+fn collect_rollout_entries(
+    rollout_path: &Path,
+    filter: &DateFilter,
+) -> (Vec<ParsedUserEntry>, Vec<ParsedAssistantEntry>) {
     let file = match File::open(rollout_path) {
         Ok(file) => file,
-        Err(_) => return Vec::new(),
+        Err(_) => return (Vec::new(), Vec::new()),
     };
     let reader = BufReader::new(file);
-    let mut entries = Vec::new();
+    let mut user_entries = Vec::new();
+    let mut assistant_entries = Vec::new();
 
     for line in reader.lines() {
         let line = match line {
@@ -167,15 +169,47 @@ fn collect_rollout_entries(rollout_path: &Path, filter: &DateFilter) -> Vec<Pars
         if !matches!(item_type, "response_item" | "event_msg") {
             continue;
         }
-        if let Some(entry) = value
-            .get("payload")
-            .and_then(|payload| extract_rollout_entry(timestamp, item_type, payload))
+        let Some(payload) = value.get("payload") else {
+            continue;
+        };
+        if item_type == "response_item"
+            && let Some(entry) = extract_rollout_user_entry(timestamp, payload)
         {
-            entries.push(entry);
+            user_entries.push(entry);
+        }
+        if let Some(entry) = extract_rollout_entry(timestamp, item_type, payload) {
+            assistant_entries.push(entry);
         }
     }
 
-    entries
+    (user_entries, assistant_entries)
+}
+
+fn extract_rollout_user_entry(timestamp: &str, payload: &Value) -> Option<ParsedUserEntry> {
+    if payload.get("type").and_then(Value::as_str) != Some("message")
+        || payload.get("role").and_then(Value::as_str) != Some("user")
+    {
+        return None;
+    }
+    let text = payload
+        .get("content")?
+        .as_array()?
+        .iter()
+        .filter(|block| block.get("type").and_then(Value::as_str) == Some("input_text"))
+        .filter_map(|block| block.get("text").and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // Use history's second precision and UTC spelling for user prompts.
+    let timestamp = DateTime::parse_from_rfc3339(timestamp).ok()?.timestamp();
+    Some(ParsedUserEntry {
+        timestamp: unix_seconds_to_rfc3339(timestamp)?,
+        text: trimmed.to_string(),
+    })
 }
 
 fn empty_assistant_entry(timestamp: &str) -> ParsedAssistantEntry {
@@ -286,13 +320,18 @@ fn extract_paths_from_commands(commands: &[Value]) -> Vec<String> {
     paths
 }
 
-pub fn collect_sessions(codex_dir: &Path, filter: &DateFilter) -> Result<Vec<RawSession>> {
-    let history_path = codex_dir.join("history.jsonl");
-    let state_path = codex_dir.join("state_5.sqlite");
-    let thread_metadata = load_thread_metadata(&state_path)?;
-
-    let file = File::open(&history_path)
-        .with_context(|| format!("Failed to open {}", history_path.display()))?;
+fn collect_history_entries(
+    history_path: &Path,
+    filter: &DateFilter,
+) -> Result<HashMap<String, Vec<ParsedUserEntry>>> {
+    let file = match File::open(history_path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(HashMap::new()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("Failed to open {}", history_path.display()));
+        }
+    };
     let reader = BufReader::new(file);
 
     let mut grouped_entries: HashMap<String, Vec<ParsedUserEntry>> = HashMap::new();
@@ -326,35 +365,79 @@ pub fn collect_sessions(codex_dir: &Path, filter: &DateFilter) -> Result<Vec<Raw
             .or_default()
             .push(ParsedUserEntry {
                 timestamp,
-                text: truncate(trimmed, MAX_PROMPT_LEN),
+                text: trimmed.to_string(),
             });
+    }
+
+    Ok(grouped_entries)
+}
+
+fn merge_rollout_user_entries(
+    history_entries: &mut Vec<ParsedUserEntry>,
+    mut rollout_entries: Vec<ParsedUserEntry>,
+) {
+    deduplicate_user_entries(history_entries);
+    deduplicate_user_entries(&mut rollout_entries);
+    // nwiizo-coding-style: history and rollout have no shared message ID, so pair
+    // identical text one-to-one by the nearest timestamp; use IDs if available later.
+    for history_entry in history_entries.iter() {
+        let Ok(history_time) = DateTime::parse_from_rfc3339(&history_entry.timestamp) else {
+            continue;
+        };
+        let closest = rollout_entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.text == history_entry.text)
+            .filter_map(|(index, entry)| {
+                let time = DateTime::parse_from_rfc3339(&entry.timestamp).ok()?;
+                Some((time.timestamp().abs_diff(history_time.timestamp()), index))
+            })
+            .min();
+        if let Some((_, index)) = closest {
+            rollout_entries.remove(index);
+        }
+    }
+    history_entries.extend(rollout_entries);
+}
+
+pub fn collect_sessions(codex_dir: &Path, filter: &DateFilter) -> Result<Vec<RawSession>> {
+    let thread_metadata = load_thread_metadata(&codex_dir.join("state_5.sqlite"))?;
+    let mut grouped_entries = collect_history_entries(&codex_dir.join("history.jsonl"), filter)?;
+    for session_id in thread_metadata.keys() {
+        grouped_entries.entry(session_id.clone()).or_default();
     }
 
     let mut sessions: Vec<RawSession> = grouped_entries
         .into_iter()
-        .map(|(session_id, mut user_entries)| {
-            user_entries.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
-
+        .filter_map(|(session_id, mut user_entries)| {
             let meta = thread_metadata.get(&session_id);
             let project_path = meta.map(|value| value.cwd.clone()).unwrap_or_default();
-            let assistant_entries = meta
+            let (rollout_user_entries, assistant_entries) = meta
                 .and_then(|value| value.rollout_path.as_deref())
                 .map(|path| collect_rollout_entries(path, filter))
                 .unwrap_or_default();
+            merge_rollout_user_entries(&mut user_entries, rollout_user_entries);
+            if user_entries.is_empty() {
+                return None;
+            }
+            for entry in &mut user_entries {
+                entry.text = truncate(&entry.text, MAX_PROMPT_LEN);
+            }
+            user_entries.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
             let project = if project_path.is_empty() {
                 "unknown".to_string()
             } else {
                 extract_project_from_cwd(&project_path)
             };
 
-            RawSession {
+            Some(RawSession {
                 session_id,
                 project,
                 project_path,
                 git_branch: meta.and_then(|value| value.git_branch.clone()),
                 user_entries,
                 assistant_entries,
-            }
+            })
         })
         .collect();
 

@@ -91,10 +91,14 @@ user メッセージの content は `string`（単純テキスト）または `a
 ~/.codex/logs_2.sqlite
 ```
 
-- `history.jsonl`: user prompt 履歴。`nippo` での Codex 収集の主データソース
-- `state_5.sqlite`: thread の `cwd` / `git_branch` / `rollout_path` などのメタデータ
-- `rollout_path` が指す rollout JSONL: assistant メッセージ、ツール呼び出し、トークン使用量、変更ファイル
+- `history.jsonl`: user prompt 履歴。ファイルがない場合や、一部のセッションの記録がない場合も収集可能
+- `state_5.sqlite`: thread の一覧と `cwd` / `git_branch` / `rollout_path` などのメタデータ
+- `rollout_path` が指す rollout JSONL: user / assistant メッセージ、ツール呼び出し、トークン使用量、変更ファイル
 - `logs_2.sqlite`: 内部診断ログ。`nippo` では**日報の主データソースに使わない**
+
+`history.jsonl` または `state_5.sqlite` があれば Codex のデータありと判定する。
+history と SQLite の両方からセッション ID を集め、対応する rollout を読み取る。
+rollout が存在しない、または読めない場合も、history に残っている発言は収集する。
 
 ## Codex history.jsonl エントリ
 
@@ -119,7 +123,24 @@ SELECT id, cwd, git_branch, rollout_path FROM threads;
 - `id`: history の `session_id` と対応
 - `cwd`: プロジェクトパス
 - `git_branch`: ブランチ名
-- `rollout_path`: assistant 側の rollout JSONL へのパス
+- `rollout_path`: user / assistant の会話を含む rollout JSONL へのパス
+
+## Codex rollout のユーザー発言
+
+`type: "response_item"` のうち、payload が `type: "message"`、`role: "user"` の
+記録を収集する。`content` 配列の `input_text` を改行で連結し、空の本文を除外する。
+同じ発言の通知である `event_msg` の `user_message` は加算しない。
+
+日付条件は記録の `timestamp` に適用し、プロンプトノイズは他の収集元と同じ処理で
+除外する。対象期間にユーザー発言がなく、assistant 側の記録だけがあるセッションは
+収集しない。
+
+ユーザー発言の時刻は history と同じ秒単位の UTC 表記へ揃える。
+それぞれの保存先で時刻と本文が一致する重複を除いた後、history の
+発言ごとに同じ本文で時刻が最も近い rollout の発言を 1 件ずつ照合し、history 側を残す。
+照合されなかった発言は両方の保存先から残す。
+両方に共通するメッセージ ID がないため、同一発言かどうかの判断は本文と時刻に基づく。
+照合には省略前の本文を使い、照合後に従来と同じ長さへ制限する。
 
 ## opencode の保存場所
 
@@ -201,8 +222,9 @@ JSON の `meta.period.from` と `meta.period.to` は指定した日付範囲の�
 `--from` だけを指定した場合の終了日は今日、`--to` だけを指定した場合の開始日は `null` になる。
 プロジェクト総数は `stats.projects_worked_on` の要素数から求める。
 
-既定では、スラッシュコマンド展開、ハーネス通知、画像プレースホルダ、中断通知、
-compact の導入文、短い肯定応答を user エントリから除外する。対応する assistant エントリは
+既定では、AGENTS.md の指示・環境情報、スラッシュコマンド展開、ハーネス通知、
+画像プレースホルダ、中断通知、compact の導入文、短い肯定応答を user エントリから除外する。
+対応する assistant エントリは
 同じ ID の通常プロンプトと統合されている場合だけ、ツール使用や変更ファイルの集計に残る。
 統合後に意味のある user prompt がないセッションは、定期実行やコマンド展開だけの記録として
 セッション全体を除外する。除外前の記録が必要な場合は `--include-prompt-noise` を指定する。

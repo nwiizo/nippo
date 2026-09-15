@@ -516,7 +516,7 @@ fn claude_available(claude_dir: &std::path::Path) -> bool {
 }
 
 fn codex_available(codex_dir: &std::path::Path) -> bool {
-    codex_dir.join("history.jsonl").exists()
+    discover_codex_history_files(codex_dir).is_ok()
 }
 
 fn opencode_available(opencode_dir: &std::path::Path) -> bool {

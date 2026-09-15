@@ -27,6 +27,7 @@ context: fork
 - ファイル名: `reports/{モード}-YYYY-MM-DD.md`（期間 N>1 なら `-Nd` を付与）
 - 日付境界は実行環境のローカルタイムゾーン基準。`--days 1` と `daily` は「今日のローカル日付」を意味する
 - デフォルト source は `auto`。Codex では `history.jsonl` と `state_5.sqlite`、および `rollout_path` が指す rollout データを使う。`logs_2.sqlite` は診断用で、日報の主データソースにはしない
+- Codex は `history.jsonl` にないセッションも、SQLite が参照する rollout に対象期間内のユーザー発言があれば収集する。history ファイル自体がなくても利用でき、重複する発言はコレクターが統合する
 - このリポジトリ内で実行している場合は、グローバル `nippo` より `cargo run -q -p nippo -- collect ...` を優先する（ローカル実装が新しい可能性があるため）
 - モードと引数を決める前にデータを先読みしない。同じ条件の収集は 1 回だけ実行する
 - 収集 JSON の一時ファイル `tmp/nippo-raw.json` はレポート保存後に必ず削除する。収集や生成に失敗して停止する場合も削除する

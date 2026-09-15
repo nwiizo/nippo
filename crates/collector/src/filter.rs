@@ -207,7 +207,9 @@ fn local_date_start(date: NaiveDate) -> DateTime<Utc> {
 }
 
 fn local_date_end(date: NaiveDate) -> DateTime<Utc> {
-    let naive = date.and_hms_opt(23, 59, 59).expect("valid local end time");
+    let naive = date
+        .and_hms_nano_opt(23, 59, 59, 999_999_999)
+        .expect("valid local end time");
     local_datetime_to_utc(naive)
 }
 

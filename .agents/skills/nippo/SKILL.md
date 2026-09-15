@@ -76,6 +76,7 @@ Examples:
 - Treat one token matching `claude`, `codex`, `opencode`, or `all` as the source selector and pass it through to `--source`.
 - Treat one token matching `today`, `yesterday`, `this-week`, `last-week`, `week-before-last`, `this-month`, `last-month`, or `month-before-last` as a period selector and pass it through to `--period`. In that case do not add the mode's default `--days` or default `--period today`; the explicit `--period` is the sole time-window flag. For `daily`, use `meta.period.to` from the collected JSON as the output filename date instead of computing it from the execution date.
 - `Codex` report data comes from `history.jsonl`, `state_5.sqlite`, and rollout data referenced by `rollout_path`. Treat `logs_2.sqlite` as diagnostics only.
+- Codex collection also includes sessions absent from `history.jsonl` when SQLite references a rollout with user prompts in the requested period. The history file itself is optional; the collector merges duplicate prompts.
 - Codex-derived reports may have sparse assistant/tool metrics. State that explicitly instead of inventing numbers.
 - For daily reports, copy `meta.source`, `meta.total_sessions`, `stats.projects_worked_on`, and `stats.tool_frequency` from the collected JSON instead of inferring them from an older report.
 - In every mode that prints a date range, use `meta.period.from` and `meta.period.to`; do not recalculate the range from the execution date.

@@ -259,6 +259,10 @@ collector はデータ収集と決定的な集計だけを担当します。文�
 - opencode: `~/.local/share/opencode/opencode.db`、`opencode-dev.db`
 - `logs_2.sqlite` は診断用で、日報の主データソースには使いません
 
+Codex は `history.jsonl` に記録がないセッションも、SQLite に登録された rollout に
+対象期間内のユーザー発言があれば収集します。`history.jsonl` 自体がない場合も利用できます。
+両方にある同文の発言は、記録時刻が近いものを 1 件ずつ照合して重複を除きます。
+
 ## テンプレートを変更する
 
 [`docs/templates/`](docs/templates/) に各モードのテンプレートがあります。

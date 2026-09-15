@@ -89,14 +89,7 @@ pub(crate) fn merge_sessions_by_id(sessions: Vec<RawSession>) -> Vec<RawSession>
     let mut sessions: Vec<RawSession> = merged.into_values().collect();
     sessions.extend(sessions_without_id);
     for session in &mut sessions {
-        session.user_entries.sort_by(|left, right| {
-            left.timestamp
-                .cmp(&right.timestamp)
-                .then_with(|| left.text.cmp(&right.text))
-        });
-        session
-            .user_entries
-            .dedup_by(|left, right| left.timestamp == right.timestamp && left.text == right.text);
+        deduplicate_user_entries(&mut session.user_entries);
         session.assistant_entries.sort_by(|left, right| {
             left.timestamp
                 .cmp(&right.timestamp)
@@ -109,6 +102,15 @@ pub(crate) fn merge_sessions_by_id(sessions: Vec<RawSession>) -> Vec<RawSession>
         session.assistant_entries.dedup();
     }
     sessions
+}
+
+pub(crate) fn deduplicate_user_entries(entries: &mut Vec<ParsedUserEntry>) {
+    entries.sort_by(|left, right| {
+        left.timestamp
+            .cmp(&right.timestamp)
+            .then_with(|| left.text.cmp(&right.text))
+    });
+    entries.dedup_by(|left, right| left.timestamp == right.timestamp && left.text == right.text);
 }
 
 fn merge_session(target: &mut RawSession, mut source: RawSession) {
@@ -151,6 +153,8 @@ fn prefers_project_metadata(candidate: &RawSession, current: &RawSession) -> boo
 
 pub(crate) fn is_meaningful_prompt(text: &str) -> bool {
     const NOISE_PREFIXES: &[&str] = &[
+        "# AGENTS.md instructions for ",
+        "<environment_context>",
         "<command-name>",
         "<command-message>",
         "<command-args>",
