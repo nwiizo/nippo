@@ -169,6 +169,9 @@ pub(crate) fn is_meaningful_prompt(text: &str) -> bool {
         "This session is being continued from a previous conversation",
         "Base directory for this skill:",
         "(Re-invocation of /",
+        // 他セッションからの転送は isMeta が付かずに記録されることがある
+        "Another Claude session sent a message:",
+        "[Cross-session idle notice]",
     ];
 
     let trimmed = text.trim();
@@ -512,6 +515,8 @@ mod tests {
             "This session is being continued from a previous conversation that ran out of context.",
             "Base directory for this skill: /tmp/example",
             "(Re-invocation of /nippo)",
+            "Another Claude session sent a message:\n<teammate-message teammate_id=\"x\">Rust ではなく Go にする</teammate-message>",
+            "[Cross-session idle notice] \"git-88\", which you asked to be notified about, is idle now",
             "y",
             "はい",
             "OK",

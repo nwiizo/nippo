@@ -46,6 +46,9 @@ struct UserEntry {
     git_branch: Option<String>,
     #[serde(default)]
     is_sidechain: Option<bool>,
+    /// hook の出力・system-reminder・他セッションからのメッセージ等、ハーネスが差し込んだ行
+    #[serde(default)]
+    is_meta: Option<bool>,
     message: Option<UserMessage>,
 }
 
@@ -298,6 +301,10 @@ pub fn parse_session_file(path: &Path, filter: &DateFilter) -> Result<Option<Raw
                 if user.is_sidechain.unwrap_or(false) {
                     continue;
                 }
+                // ユーザーが打った発言ではないのでスキップ
+                if user.is_meta.unwrap_or(false) {
+                    continue;
+                }
 
                 if session_id.is_empty()
                     && let Some(sid) = &user.session_id
@@ -405,4 +412,41 @@ pub fn collect_sessions(claude_dir: &Path, filter: &DateFilter) -> Result<Vec<Ra
         .collect();
 
     Ok(sessions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn skips_meta_user_entries_injected_by_harness() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("session.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"user\",\"timestamp\":\"2026-10-07T03:00:00Z\",\"sessionId\":\"s1\",\"cwd\":\"/tmp/articles\",\"message\":{\"role\":\"user\",\"content\":\"記事はです・ます調にする\"}}\n",
+                "{\"type\":\"user\",\"isMeta\":true,\"timestamp\":\"2026-10-07T03:01:00Z\",\"sessionId\":\"s1\",\"cwd\":\"/tmp/articles\",\"message\":{\"role\":\"user\",\"content\":\"Stop hook feedback:\\n[bash ~/.claude/hooks/stop-bye-trigger.sh]: ⚠️ 文脈が 301k トークンに達した\"}}\n",
+                "{\"type\":\"user\",\"isMeta\":true,\"timestamp\":\"2026-10-07T03:02:00Z\",\"sessionId\":\"s1\",\"cwd\":\"/tmp/articles\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Another Claude session sent a message: <teammate-message teammate_id=\\\"x\\\">ではなく</teammate-message>\"}]}}\n",
+                "{\"type\":\"assistant\",\"timestamp\":\"2026-10-07T03:03:00Z\",\"sessionId\":\"s1\",\"cwd\":\"/tmp/articles\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}}\n"
+            ),
+        )
+        .expect("write session");
+
+        let filter =
+            DateFilter::from_range(Some("2026-10-07"), Some("2026-10-07")).expect("filter");
+        let session = parse_session_file(&path, &filter)
+            .expect("parse")
+            .expect("session");
+
+        let texts: Vec<&str> = session
+            .user_entries
+            .iter()
+            .map(|entry| entry.text.as_str())
+            .collect();
+        assert_eq!(texts, vec!["記事はです・ます調にする"]);
+        assert_eq!(session.assistant_entries.len(), 1);
+    }
 }
