@@ -1,7 +1,8 @@
 [package]
 name = "nippo"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2024"
+rust-version = "1.89"
 description = "Claude Code, Codex, and opencode session collector for daily reports and reflection"
 license = "MIT"
 repository = "https://github.com/nwiizo/nippo"
@@ -27,8 +28,8 @@ chrono = { version = "0.4", features = ["serde"] }
 iana-time-zone = "0.1"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
-rusqlite = "0.37"
-ratatui = { version = "0.29", optional = true }
+rusqlite = "0.41"
+ratatui = { version = "0.30", optional = true, default-features = false, features = ["crossterm", "layout-cache", "underline-color"] }
 
 [dev-dependencies]
 tempfile = "3"
