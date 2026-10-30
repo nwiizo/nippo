@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.9 — 2026-10-30
+
+- PR #31〜#37 の依存更新を反映: clap 4.6.7、glob 0.3.4、serde 1.0.229、serde_json 1.0.154、rayon 1.12.0、ratatui 0.30.2、rusqlite 0.41.1。
+- TUI の依存機能を使用中の crossterm・レイアウトキャッシュ・下線色に限定。
+- rusqlite の要件に合わせて最低Rust版を1.89、SQLiteの要件を3.45.3以上と明記。
+- PR #38・#39 の GitHub Actions 更新を反映し、Rust 1.89での検証と `--locked` による依存固定をCIに追加。
+
 ## 0.1.8 — 2026-10-30
 
 - Claude Code の自動挿入メッセージを本人の判断から除外し、診断用出力では `is_meta: true` として保持。

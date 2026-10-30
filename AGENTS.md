@@ -17,7 +17,7 @@ cargo clippy -p nippo -- -D warnings
 cargo test -p nippo
 ```
 
-- Rust edition 2024、Rust 1.85+ 前提
+- Rust edition 2024、Rust 1.89+ 前提
 - `.unwrap()` は避け、`anyhow::Result` と `?` を使う
 
 ## Change Map
