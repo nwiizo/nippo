@@ -279,6 +279,10 @@ Codex は `history.jsonl` に記録がないセッションも、SQLite に登�
 選んだモードのテンプレートだけを読み込みます。report / review / trend も本文の根拠が
 必要なため、通常はセッション詳細を含む JSON を使います。
 
+保存後は [`docs/report-quality.md`](docs/report-quality.md) に従い、保存した本文の期間・統計・
+出典と、依頼／完了／提案の区別を今回の入力に照らします。これはSkillによる読み比べで、
+本文の正確性を自動判定する機能ではありません。
+
 - `nippo-template.md`: 日報
 - `reflection-template.md`: 振り返りの問い
 - `plan-template.md`: 今日の実験候補

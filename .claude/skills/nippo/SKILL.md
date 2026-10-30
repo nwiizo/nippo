@@ -11,6 +11,7 @@ context: fork
 `$ARGUMENTS` に基づいて、日本語の作業履歴レポートを呼び出し元の `reports/` に作る。
 引数が渡されない環境ではユーザーの依頼文から条件を読む。
 収集前に [共通の実行手順](docs/report-workflow.md) を読む。
+執筆前と保存後に [根拠と保存結果の確認](docs/report-quality.md) を使う。
 参照ファイルは `${CLAUDE_SKILL_DIR}` を基準に解決し、出力先の cwd は変えない。
 
 `review`・`plan`・`guide` は、nippoまたは作業履歴のレポートと判断した後のモード指定。

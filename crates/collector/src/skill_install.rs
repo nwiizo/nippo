@@ -9,6 +9,10 @@ const CODEX_SKILL: &str = include_str!("../assets/skill-codex.md");
 
 const SHARED_ASSETS: &[EmbeddedAsset] = &[
     EmbeddedAsset {
+        relative_path: "docs/report-quality.md",
+        contents: include_str!("../assets/docs/report-quality.md"),
+    },
+    EmbeddedAsset {
         relative_path: "docs/report-workflow.md",
         contents: include_str!("../assets/docs/report-workflow.md"),
     },

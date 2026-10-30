@@ -7,6 +7,7 @@ description: Claude Code・Codex・opencodeの作業履歴から、日本語の�
 
 Turn local agent work history into a Japanese report under the caller's `reports/`.
 Read [the shared workflow](docs/report-workflow.md) before collecting data.
+Use [the evidence and saved-report checks](docs/report-quality.md) before writing and after saving.
 Resolve these links relative to this skill's directory, not the caller's cwd.
 
 Mode words such as `review`, `plan`, and `guide` select a report format only
