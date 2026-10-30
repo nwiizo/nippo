@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.8 — Unreleased
+## 0.1.8 — 2026-10-30
 
 - Claude Code の自動挿入メッセージを本人の判断から除外し、診断用出力では `is_meta: true` として保持。
 - Claude Code の発言の由来と Codex の対応する provenance を読み取り、本人の発言と区別。
