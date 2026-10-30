@@ -12,6 +12,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use super::{extract_project_from_cwd, truncate_prompt};
 use crate::filter::DateFilter;
 use crate::session::{ParsedAssistantEntry, ParsedUserEntry, RawSession};
 
@@ -46,7 +47,36 @@ struct UserEntry {
     git_branch: Option<String>,
     #[serde(default)]
     is_sidechain: Option<bool>,
+    /// hook の出力・system-reminder・他セッションからのメッセージ等、ハーネスが差し込んだ行
+    #[serde(default)]
+    is_meta: Option<bool>,
+    is_synthetic: Option<bool>,
+    origin: Option<MessageOrigin>,
     message: Option<UserMessage>,
+}
+
+#[derive(Deserialize)]
+struct MessageOrigin {
+    kind: Option<String>,
+}
+
+impl UserEntry {
+    fn is_meta(&self) -> bool {
+        self.is_meta.unwrap_or(false)
+            || self.is_synthetic.unwrap_or(false)
+            || matches!(
+                self.origin
+                    .as_ref()
+                    .and_then(|origin| origin.kind.as_deref()),
+                Some(
+                    "peer"
+                        | "task-notification"
+                        | "coordinator"
+                        | "auto-continuation"
+                        | "unclassified"
+                )
+            )
+    }
 }
 
 #[derive(Deserialize)]
@@ -162,18 +192,6 @@ pub fn discover_session_files(claude_dir: &Path) -> Result<Vec<SessionFile>> {
 // JSONL パース
 // ---------------------------------------------------------------------------
 
-/// ユーザープロンプトの最大文字数（超過分は省略）
-const MAX_PROMPT_LEN: usize = 500;
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max).collect();
-        format!("{truncated}...")
-    }
-}
-
 /// ユーザーメッセージからテキスト部分を抽出する
 fn extract_user_text(content: &MessageContent) -> Option<String> {
     match content {
@@ -182,7 +200,7 @@ fn extract_user_text(content: &MessageContent) -> Option<String> {
             if trimmed.is_empty() {
                 None
             } else {
-                Some(truncate(trimmed, MAX_PROMPT_LEN))
+                Some(truncate_prompt(trimmed))
             }
         }
         MessageContent::Blocks(blocks) => {
@@ -196,7 +214,7 @@ fn extract_user_text(content: &MessageContent) -> Option<String> {
             if texts.is_empty() {
                 None
             } else {
-                Some(truncate(&texts.join("\n"), MAX_PROMPT_LEN))
+                Some(truncate_prompt(&texts.join("\n")))
             }
         }
     }
@@ -230,14 +248,6 @@ fn extract_tool_info(blocks: &[ContentBlock]) -> (Vec<String>, Vec<String>) {
     }
 
     (tool_names, file_paths)
-}
-
-/// cwd からプロジェクト名（ディレクトリ末尾）を取得する
-fn extract_project_from_cwd(cwd: &str) -> String {
-    Path::new(cwd)
-        .file_name()
-        .map(|f| f.to_string_lossy().to_string())
-        .unwrap_or_else(|| cwd.to_string())
 }
 
 /// 1つの JSONL ファイルをパースし、RawSession を返す。
@@ -294,6 +304,7 @@ pub fn parse_session_file(path: &Path, filter: &DateFilter) -> Result<Option<Raw
 
         match entry {
             JournalEntry::User(user) => {
+                let is_meta = user.is_meta();
                 // サブエージェントの内部メッセージはスキップ
                 if user.is_sidechain.unwrap_or(false) {
                     continue;
@@ -320,6 +331,7 @@ pub fn parse_session_file(path: &Path, filter: &DateFilter) -> Result<Option<Raw
                     user_entries.push(ParsedUserEntry {
                         timestamp: user.timestamp.unwrap_or_default(),
                         text,
+                        is_meta,
                     });
                 }
             }
@@ -405,4 +417,45 @@ pub fn collect_sessions(claude_dir: &Path, filter: &DateFilter) -> Result<Vec<Ra
         .collect();
 
     Ok(sessions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn preserves_meta_user_entries_for_optional_filtering() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("session.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"user\",\"timestamp\":\"2026-10-07T03:00:00Z\",\"sessionId\":\"s1\",\"cwd\":\"/tmp/articles\",\"message\":{\"role\":\"user\",\"content\":\"記事はです・ます調にする\"}}\n",
+                "{\"type\":\"user\",\"isMeta\":true,\"timestamp\":\"2026-10-07T03:01:00Z\",\"sessionId\":\"s1\",\"cwd\":\"/tmp/articles\",\"message\":{\"role\":\"user\",\"content\":\"Stop hook feedback:\\n[bash ~/.claude/hooks/stop-bye-trigger.sh]: ⚠️ 文脈が 301k トークンに達した\"}}\n",
+                "{\"type\":\"user\",\"isMeta\":true,\"timestamp\":\"2026-10-07T03:02:00Z\",\"sessionId\":\"s1\",\"cwd\":\"/tmp/articles\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Another Claude session sent a message: <teammate-message teammate_id=\\\"x\\\">ではなく</teammate-message>\"}]}}\n",
+                "{\"type\":\"assistant\",\"timestamp\":\"2026-10-07T03:03:00Z\",\"sessionId\":\"s1\",\"cwd\":\"/tmp/articles\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}}\n"
+            ),
+        )
+        .expect("write session");
+
+        let filter =
+            DateFilter::from_range(Some("2026-10-07"), Some("2026-10-07")).expect("filter");
+        let session = parse_session_file(&path, &filter)
+            .expect("parse")
+            .expect("session");
+
+        let texts: Vec<&str> = session
+            .user_entries
+            .iter()
+            .filter(|entry| !entry.is_meta)
+            .map(|entry| entry.text.as_str())
+            .collect();
+        assert_eq!(texts, vec!["記事はです・ます調にする"]);
+        assert_eq!(session.user_entries.len(), 3);
+        assert!(session.user_entries[1].is_meta);
+        assert!(session.user_entries[2].is_meta);
+        assert_eq!(session.assistant_entries.len(), 1);
+    }
 }

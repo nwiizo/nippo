@@ -4,8 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 use crate::session::{
-    DateRange, RawSession, SessionSummary, assistant_message_count, is_meaningful_prompt,
-    sort_sessions_by_recency, summarize_session,
+    DateRange, RawSession, SessionSummary, assistant_message_count, sort_sessions_by_recency,
+    summarize_session,
 };
 
 /// UTC タイムスタンプからローカル時間の時（HH）を抽出する
@@ -177,7 +177,7 @@ fn extract_decisions(sessions: &[RawSession]) -> Vec<DecisionPoint> {
 
     for session in sessions {
         for entry in &session.user_entries {
-            if !is_meaningful_prompt(&entry.text) {
+            if !entry.is_meaningful() {
                 continue;
             }
             let text_lower = entry.text.to_lowercase();
@@ -791,6 +791,7 @@ mod tests {
             user_entries: vec![ParsedUserEntry {
                 timestamp: start.to_string(),
                 text: "prompt".to_string(),
+                is_meta: false,
             }],
             assistant_entries: vec![ParsedAssistantEntry {
                 timestamp: end.to_string(),
@@ -867,10 +868,12 @@ mod tests {
                 ParsedUserEntry {
                     timestamp: "2026-08-24T03:33:00Z".to_string(),
                     text: "early morning".to_string(),
+                    is_meta: false,
                 },
                 ParsedUserEntry {
                     timestamp: "2026-08-24T19:00:00Z".to_string(),
                     text: "evening".to_string(),
+                    is_meta: false,
                 },
             ],
             assistant_entries: vec![
@@ -918,10 +921,12 @@ mod tests {
                 ParsedUserEntry {
                     timestamp: "2026-04-01T09:00:00Z".to_string(),
                     text: "morning".to_string(),
+                    is_meta: false,
                 },
                 ParsedUserEntry {
                     timestamp: "2026-04-01T13:00:00Z".to_string(),
                     text: "afternoon".to_string(),
+                    is_meta: false,
                 },
             ],
             assistant_entries: vec![
@@ -984,6 +989,7 @@ mod tests {
                 user_entries: vec![ParsedUserEntry {
                     timestamp: "2026-04-01T10:00:00Z".to_string(),
                     text: "Rust にする".to_string(),
+                    is_meta: false,
                 }],
                 assistant_entries: Vec::<ParsedAssistantEntry>::new(),
             },
@@ -995,6 +1001,7 @@ mod tests {
                 user_entries: vec![ParsedUserEntry {
                     timestamp: "2026-04-01T10:00:00Z".to_string(),
                     text: "Rust にする".to_string(),
+                    is_meta: false,
                 }],
                 assistant_entries: Vec::<ParsedAssistantEntry>::new(),
             },
@@ -1030,6 +1037,7 @@ mod tests {
             user_entries: vec![ParsedUserEntry {
                 timestamp: "2026-04-01T10:00:00Z".to_string(),
                 text: "進める".to_string(),
+                is_meta: false,
             }],
             assistant_entries: Vec::<ParsedAssistantEntry>::new(),
         }];
@@ -1068,14 +1076,17 @@ mod tests {
                 ParsedUserEntry {
                     timestamp: "2026-08-13T10:00:00Z".to_string(),
                     text: "Base directory for this skill: /tmp/instead-of-this".to_string(),
+                    is_meta: false,
                 },
                 ParsedUserEntry {
                     timestamp: "2026-08-13T10:01:00Z".to_string(),
                     text: "(Re-invocation of /switch-to-example)".to_string(),
+                    is_meta: false,
                 },
                 ParsedUserEntry {
                     timestamp: "2026-08-13T10:02:00Z".to_string(),
                     text: "Python ではなく Rust にする".to_string(),
+                    is_meta: false,
                 },
             ],
             assistant_entries: Vec::new(),

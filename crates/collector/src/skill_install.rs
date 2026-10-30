@@ -9,6 +9,14 @@ const CODEX_SKILL: &str = include_str!("../assets/skill-codex.md");
 
 const SHARED_ASSETS: &[EmbeddedAsset] = &[
     EmbeddedAsset {
+        relative_path: "docs/report-quality.md",
+        contents: include_str!("../assets/docs/report-quality.md"),
+    },
+    EmbeddedAsset {
+        relative_path: "docs/report-workflow.md",
+        contents: include_str!("../assets/docs/report-workflow.md"),
+    },
+    EmbeddedAsset {
         relative_path: "docs/templates/nippo-template.md",
         contents: include_str!("../assets/docs/templates/nippo-template.md"),
     },
@@ -378,6 +386,7 @@ mod tests {
 
         for kind in [SkillKind::Claude, SkillKind::Codex] {
             let destination = home.path().join(kind.relative_install_path());
+            validate_skill(&destination)?;
             assert_eq!(
                 fs::read_to_string(destination.join("SKILL.md"))?,
                 kind.skill_contents()
@@ -388,6 +397,32 @@ mod tests {
                     asset.contents
                 );
             }
+        }
+        Ok(())
+    }
+
+    fn validate_skill(directory: &Path) -> Result<()> {
+        let skill = fs::read_to_string(directory.join("SKILL.md"))?;
+        let frontmatter = skill
+            .strip_prefix("---\n")
+            .and_then(|body| body.split_once("\n---"))
+            .map(|(yaml, _)| yaml)
+            .context("skill frontmatter")?;
+        let metadata: serde_yaml::Value = serde_yaml::from_str(frontmatter)?;
+        assert_eq!(metadata["name"].as_str(), Some("nippo"));
+        assert!(
+            !metadata["description"]
+                .as_str()
+                .context("description")?
+                .is_empty()
+        );
+        // Validate the installed links rather than just the embedded byte strings.
+        for section in skill.split("](").skip(1) {
+            let target = section.split_once(')').context("markdown link")?.0;
+            assert!(
+                directory.join(target).is_file(),
+                "missing skill reference: {target}"
+            );
         }
         Ok(())
     }

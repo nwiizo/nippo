@@ -227,6 +227,14 @@ nippo collect --days 0                # 全期間
 日付境界は実行環境のローカルタイムゾーンを使います。collector は同じ session ID の
 分割記録を統合し、既定では実行中のセッションと定型的なプロンプトノイズを除外します。
 
+Claude Code の自動挿入フラグ・発言の由来、Codex の対応する provenance がある場合は、
+本人の発言と区別します。`--include-prompt-noise` では自動挿入分も `is_meta: true` 付きで
+確認できますが、`decisions` には含めません。通常出力では本人の発言が残らないセッションを
+除くため、自動実行の全成果を網羅する集計ではありません。
+
+保存先は `CLAUDE_CONFIG_DIR` / `CODEX_HOME` に従います。`--claude-dir` / `--codex-dir`
+を明示すると環境変数より優先されます。
+
 保存場所、JSON の項目、source の解決順は
 [`docs/data-sources.md`](docs/data-sources.md) を参照してください。利用可能な全オプションは
 `nippo collect --help` で確認できます。
@@ -267,6 +275,14 @@ Codex は `history.jsonl` に記録がないセッションも、SQLite に登�
 
 [`docs/templates/`](docs/templates/) に各モードのテンプレートがあります。
 
+両ホストの Skill は [`docs/report-workflow.md`](docs/report-workflow.md) を共通の実行手順として読み、
+選んだモードのテンプレートだけを読み込みます。report / review / trend も本文の根拠が
+必要なため、通常はセッション詳細を含む JSON を使います。
+
+保存後は [`docs/report-quality.md`](docs/report-quality.md) に従い、保存した本文の期間・統計・
+出典と、依頼／完了／提案の区別を今回の入力に照らします。これはSkillによる読み比べで、
+本文の正確性を自動判定する機能ではありません。
+
 - `nippo-template.md`: 日報
 - `reflection-template.md`: 振り返りの問い
 - `plan-template.md`: 今日の実験候補
@@ -292,6 +308,9 @@ nippo は、記録の収集と、人が行う振り返りを分けています�
 
 `/nippo reflection` は回答を埋めず、問いと空欄を出力します。振り返りに使っている理論と
 各モードの役割は [`docs/reflection-theory.md`](docs/reflection-theory.md) にまとめています。
+
+利用者が進めたいことから見た機能の優先順位と、今回の対応範囲は
+[`docs/product-jobs.md`](docs/product-jobs.md) にまとめています。
 
 ### Claude Code の `/insights` との違い
 
