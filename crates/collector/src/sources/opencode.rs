@@ -7,7 +7,7 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use crate::filter::DateFilter;
 use crate::session::{ParsedAssistantEntry, ParsedUserEntry, RawSession};
 
-const MAX_PROMPT_LEN: usize = 500;
+use super::{extract_project_from_cwd, truncate_prompt};
 
 /// opencode が使う可能性のある DB ファイル名を優先度順に並べる。
 /// prod は `opencode.db`、dev build は `opencode-dev.db`。
@@ -52,7 +52,7 @@ pub fn collect_sessions(opencode_dir: &Path, filter: &DateFilter) -> Result<Vec<
 }
 
 fn collect_from_db(db_path: &Path, filter: &DateFilter) -> Result<Vec<RawSession>> {
-    let conn = Connection::open(db_path)
+    let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .with_context(|| format!("Failed to open {}", db_path.display()))?;
 
     let project_worktree = load_project_worktree(&conn)?;
@@ -149,6 +149,7 @@ fn collect_from_db(db_path: &Path, filter: &DateFilter) -> Result<Vec<RawSession
                     session.user_entries.push(ParsedUserEntry {
                         timestamp,
                         text: String::new(),
+                        is_meta: false,
                     });
                     message_index.insert(
                         message_id,
@@ -246,7 +247,7 @@ fn collect_from_db(db_path: &Path, filter: &DateFilter) -> Result<Vec<RawSession
             .user_entries
             .retain(|entry| !entry.text.trim().is_empty());
         for entry in &mut session.user_entries {
-            entry.text = truncate(entry.text.trim(), MAX_PROMPT_LEN);
+            entry.text = truncate_prompt(entry.text.trim());
         }
         session
             .user_entries
@@ -341,7 +342,11 @@ fn load_session_meta(
                 .cloned()
                 .unwrap_or_default()
         };
-        let project = extract_project_from_cwd(&project_path);
+        let project = if project_path.is_empty() {
+            "unknown".to_string()
+        } else {
+            extract_project_from_cwd(&project_path)
+        };
         map.insert(
             id,
             SessionMeta {
@@ -393,26 +398,6 @@ fn extract_file_paths(tool_name: &str, part_data: &Value) -> Vec<String> {
     paths.sort();
     paths.dedup();
     paths
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max).collect();
-        format!("{truncated}...")
-    }
-}
-
-fn extract_project_from_cwd(cwd: &str) -> String {
-    if cwd.is_empty() {
-        return "unknown".to_string();
-    }
-    Path::new(cwd)
-        .file_name()
-        .map(|value| value.to_string_lossy().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| cwd.to_string())
 }
 
 #[cfg(test)]

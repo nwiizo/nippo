@@ -155,11 +155,11 @@ enum Commands {
         #[arg(long, value_enum, default_value = "auto")]
         source: DataSource,
 
-        /// Custom Claude data directory (default: ~/.claude)
+        /// Claude data directory (default: CLAUDE_CONFIG_DIR or ~/.claude)
         #[arg(long)]
         claude_dir: Option<PathBuf>,
 
-        /// Custom Codex data directory (default: ~/.codex)
+        /// Codex data directory (default: CODEX_HOME or ~/.codex)
         #[arg(long)]
         codex_dir: Option<PathBuf>,
 
@@ -230,8 +230,12 @@ fn run() -> Result<()> {
             opencode_dir,
         } => {
             let home_dir = dirs_home();
-            let claude_dir = claude_dir.unwrap_or_else(|| home_dir.join(".claude"));
-            let codex_dir = codex_dir.unwrap_or_else(|| home_dir.join(".codex"));
+            let claude_dir = claude_dir
+                .or_else(|| data_dir_from_env("CLAUDE_CONFIG_DIR"))
+                .unwrap_or_else(|| home_dir.join(".claude"));
+            let codex_dir = codex_dir
+                .or_else(|| data_dir_from_env("CODEX_HOME"))
+                .unwrap_or_else(|| home_dir.join(".codex"));
             let opencode_dir =
                 opencode_dir.unwrap_or_else(|| home_dir.join(".local/share/opencode"));
 
@@ -412,6 +416,12 @@ fn run_ledger(reports_dir: &Path, out: Option<&Path>, tui: bool, export: bool) -
         }
     }
     Ok(())
+}
+
+fn data_dir_from_env(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
 }
 
 fn resolve_sources(

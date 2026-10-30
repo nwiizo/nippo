@@ -28,6 +28,8 @@ pub struct DateRange {
 pub struct PromptSummary {
     pub text: String,
     pub timestamp: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_meta: bool,
 }
 
 #[derive(Serialize)]
@@ -50,6 +52,13 @@ pub struct RawSession {
 pub struct ParsedUserEntry {
     pub timestamp: String,
     pub text: String,
+    pub is_meta: bool,
+}
+
+impl ParsedUserEntry {
+    pub(crate) fn is_meaningful(&self) -> bool {
+        !self.is_meta && is_meaningful_prompt(&self.text)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -109,8 +118,13 @@ pub(crate) fn deduplicate_user_entries(entries: &mut Vec<ParsedUserEntry>) {
         left.timestamp
             .cmp(&right.timestamp)
             .then_with(|| left.text.cmp(&right.text))
+            .then_with(|| left.is_meta.cmp(&right.is_meta))
     });
-    entries.dedup_by(|left, right| left.timestamp == right.timestamp && left.text == right.text);
+    entries.dedup_by(|left, right| {
+        left.timestamp == right.timestamp
+            && left.text == right.text
+            && left.is_meta == right.is_meta
+    });
 }
 
 fn merge_session(target: &mut RawSession, mut source: RawSession) {
@@ -197,9 +211,7 @@ pub(crate) fn is_meaningful_prompt(text: &str) -> bool {
 
 pub(crate) fn retain_meaningful_prompts(sessions: &mut Vec<RawSession>) {
     for session in sessions.iter_mut() {
-        session
-            .user_entries
-            .retain(|entry| is_meaningful_prompt(&entry.text));
+        session.user_entries.retain(ParsedUserEntry::is_meaningful);
     }
     sessions.retain(|session| !session.user_entries.is_empty());
 }
@@ -258,6 +270,7 @@ pub fn summarize_session(session: &RawSession) -> SessionSummary {
         .map(|entry| PromptSummary {
             text: entry.text.clone(),
             timestamp: entry.timestamp.clone(),
+            is_meta: entry.is_meta,
         })
         .collect();
 
@@ -335,6 +348,7 @@ mod tests {
         ParsedUserEntry {
             timestamp: timestamp.to_string(),
             text: text.to_string(),
+            is_meta: false,
         }
     }
 
@@ -379,6 +393,7 @@ mod tests {
             user_entries: vec![ParsedUserEntry {
                 timestamp: "2026-04-14T05:26:39Z".to_string(),
                 text: "prompt".to_string(),
+                is_meta: false,
             }],
             assistant_entries: vec![
                 ParsedAssistantEntry {

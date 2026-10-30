@@ -106,6 +106,154 @@ fn collects_rollout_session_with_empty_history() -> Result<()> {
     Ok(())
 }
 
+fn usage_event(
+    timestamp: &str,
+    modern: bool,
+    input: u64,
+    output: u64,
+    total_input: u64,
+    total_output: u64,
+) -> Value {
+    let usage = json!({"input_tokens": input, "output_tokens": output});
+    let total = json!({"input_tokens": total_input, "output_tokens": total_output});
+    if modern {
+        json!({"timestamp": timestamp, "type": "token_usage_record", "payload": {
+            "response_id": format!("response-{total_input}-{total_output}"),
+            "usage": usage, "thread_token_usage": total
+        }})
+    } else {
+        json!({"timestamp": timestamp, "type": "event_msg", "payload": {
+            "type": "token_count", "info": {"last_token_usage": usage, "total_token_usage": total}
+        }})
+    }
+}
+
+#[test]
+fn counts_modern_usage_records_without_legacy_notifications() -> Result<()> {
+    let mut entries = rollout();
+    entries.push(usage_event("2026-09-04T12:00:02Z", true, 11, 7, 11, 7));
+    entries.push(usage_event("2026-09-04T12:00:03Z", true, 11, 7, 22, 14));
+    let dir = fixture(None, &entries)?;
+    let output = collect(dir.path(), "codex", &[])?;
+    assert_eq!(output["stats"]["total_input_tokens"], 22);
+    assert_eq!(output["stats"]["total_output_tokens"], 14);
+    Ok(())
+}
+
+#[test]
+fn deduplicates_usage_updates_and_keeps_period_boundaries() -> Result<()> {
+    let mut entries = vec![usage_event("2026-09-03T12:00:00Z", false, 100, 20, 100, 20)];
+    entries.extend(rollout());
+    entries.extend([
+        // A rate-limit update repeats usage from outside the requested day.
+        usage_event("2026-09-04T12:00:02Z", false, 100, 20, 100, 20),
+        usage_event("2026-09-04T12:00:03Z", true, 11, 7, 111, 27),
+        usage_event("2026-09-04T12:00:04Z", false, 11, 7, 111, 27),
+        // A later response may have exactly the same per-response usage.
+        usage_event("2026-09-04T12:00:05Z", true, 11, 7, 122, 34),
+        usage_event("2026-09-04T12:00:06Z", false, 11, 7, 122, 34),
+        usage_event("2026-09-04T12:00:07Z", true, 11, 7, 111, 27),
+    ]);
+    let dir = fixture(None, &entries)?;
+    let output = collect(dir.path(), "codex", &[])?;
+    assert_eq!(output["stats"]["total_input_tokens"], 22);
+    assert_eq!(output["stats"]["total_output_tokens"], 14);
+    Ok(())
+}
+
+#[test]
+fn separates_harness_context_from_user_text_using_provenance() -> Result<()> {
+    let mut mixed = user_message("2026-09-04T12:00:00Z", "unused");
+    mixed["payload"]["content"] = json!([
+        {"type": "input_text", "text": "Rust にする"},
+        {"type": "input_text", "text": "Go にする"},
+        {"type": "input_text", "text": "Python にする"}
+    ]);
+    mixed["payload"]["internal_chat_message_metadata_passthrough"] = json!({
+        "content_item_metadata": [
+            {"provenance": {"type": "user"}},
+            {"provenance": {"type": "harness", "hook": true}},
+            {"provenance": {"type": "agents_md"}}
+        ]
+    });
+    let mut entries = rollout();
+    entries[0] = mixed;
+    let dir = fixture(None, &entries)?;
+    let normal = collect(dir.path(), "codex", &[])?;
+    assert_eq!(
+        normal["sessions"][0]["user_prompts"][0]["text"],
+        "Rust にする"
+    );
+    assert_eq!(normal["decisions"][0]["user_prompt"], "Rust にする");
+    let diagnostic = collect(dir.path(), "codex", &["--include-prompt-noise"])?;
+    let prompts = diagnostic["sessions"][0]["user_prompts"]
+        .as_array()
+        .context("prompts")?;
+    assert_eq!(prompts.len(), 2);
+    assert!(prompts.iter().any(|prompt| prompt["is_meta"] == true && prompt["text"] == "Go にする\nPython にする"));
+    assert_eq!(diagnostic["decisions"], normal["decisions"]);
+    Ok(())
+}
+
+#[test]
+fn unknown_or_misaligned_provenance_does_not_discard_user_input() -> Result<()> {
+    for metadata in [
+        json!({"content_item_metadata": [{"provenance": {"type": "future-source"}}]}),
+        json!({"content_item_metadata": [{"provenance": {"type": "harness"}}, {}]}),
+        json!({"content_item_metadata": "unexpected"}),
+    ] {
+        let mut entries = rollout();
+        entries[0]["payload"]["internal_chat_message_metadata_passthrough"] = metadata;
+        let dir = fixture(None, &entries)?;
+        let output = collect(dir.path(), "codex", &[])?;
+        assert_eq!(output["stats"]["total_user_messages"], 1);
+        assert_eq!(output["sessions"][0]["user_prompts"][0]["text"], PROMPT);
+    }
+    Ok(())
+}
+
+#[test]
+fn matching_history_does_not_consume_a_synthetic_prompt() -> Result<()> {
+    let timestamp = "2026-09-04T12:00:00Z";
+    let mut meta = user_message(timestamp, PROMPT);
+    meta["payload"]["internal_chat_message_metadata_passthrough"] = json!({
+        "content_item_metadata": [{"provenance": {"type": "harness"}}]
+    });
+    let history = [json!({"session_id": "test-thread", "ts": 1788523200, "text": PROMPT})];
+    let dir = fixture(Some(&history), &[meta, user_message(timestamp, PROMPT)])?;
+    let output = collect(dir.path(), "codex", &["--include-prompt-noise"])?;
+    assert_eq!(output["stats"]["total_user_messages"], 2);
+    let prompts = output["sessions"][0]["user_prompts"]
+        .as_array()
+        .context("prompts")?;
+    assert_eq!(
+        prompts
+            .iter()
+            .filter(|prompt| prompt["is_meta"] == true)
+            .count(),
+        1
+    );
+    Ok(())
+}
+
+#[test]
+fn usage_counter_reset_and_legacy_records_keep_single_request_usage() -> Result<()> {
+    let mut entries = rollout();
+    entries.extend([
+        usage_event("2026-09-04T12:00:02Z", false, 11, 7, 100, 50),
+        usage_event("2026-09-04T12:00:03Z", false, 3, 2, 3, 2),
+        usage_event("2026-09-04T12:00:04Z", false, 3, 2, 3, 2),
+        json!({"timestamp": "2026-09-04T12:00:05Z", "type": "event_msg", "payload": {
+            "type": "token_count", "info": {"last_token_usage": {"output_tokens": 4}}
+        }}),
+    ]);
+    let dir = fixture(None, &entries)?;
+    let output = collect(dir.path(), "codex", &[])?;
+    assert_eq!(output["stats"]["total_input_tokens"], 14);
+    assert_eq!(output["stats"]["total_output_tokens"], 13);
+    Ok(())
+}
+
 #[test]
 fn discovers_codex_without_a_history_file() -> Result<()> {
     let dir = fixture(None, &rollout())?;

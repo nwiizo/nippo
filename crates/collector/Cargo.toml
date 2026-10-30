@@ -1,8 +1,8 @@
 [package]
 name = "nippo"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2024"
-description = "Claude Code session collector for daily reports and reflection"
+description = "Claude Code, Codex, and opencode session collector for daily reports and reflection"
 license = "MIT"
 repository = "https://github.com/nwiizo/nippo"
 keywords = ["claude", "daily-report", "reflection", "productivity"]

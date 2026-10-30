@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use crate::filter::DateFilter;
 use crate::session::{ParsedAssistantEntry, ParsedUserEntry, RawSession, deduplicate_user_entries};
 
-const MAX_PROMPT_LEN: usize = 500;
+use super::{extract_project_from_cwd, truncate_prompt};
 
 #[derive(Deserialize)]
 struct HistoryEntry {
@@ -50,28 +50,12 @@ pub fn discover_history_files(codex_dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max).collect();
-        format!("{truncated}...")
-    }
-}
-
-fn extract_project_from_cwd(cwd: &str) -> String {
-    Path::new(cwd)
-        .file_name()
-        .map(|value| value.to_string_lossy().to_string())
-        .unwrap_or_else(|| cwd.to_string())
-}
-
 fn load_thread_metadata(state_path: &Path) -> Result<HashMap<String, ThreadMeta>> {
     if !state_path.exists() {
         return Ok(HashMap::new());
     }
 
-    let conn = Connection::open(state_path)
+    let conn = Connection::open_with_flags(state_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .with_context(|| format!("Failed to open {}", state_path.display()))?;
     let columns = thread_columns(&conn)?;
     let rollout_column = if columns.contains("rollout_path") {
@@ -140,6 +124,7 @@ fn collect_rollout_entries(
     let reader = BufReader::new(file);
     let mut user_entries = Vec::new();
     let mut assistant_entries = Vec::new();
+    let mut token_usage = TokenUsageTracker::default();
 
     for line in reader.lines() {
         let line = match line {
@@ -159,23 +144,23 @@ fn collect_rollout_entries(
         let Some(timestamp) = value.get("timestamp").and_then(Value::as_str) else {
             continue;
         };
-        if !filter.matches(timestamp) {
-            continue;
-        }
-
         let Some(item_type) = value.get("type").and_then(Value::as_str) else {
             continue;
         };
-        if !matches!(item_type, "response_item" | "event_msg") {
-            continue;
-        }
         let Some(payload) = value.get("payload") else {
             continue;
         };
-        if item_type == "response_item"
-            && let Some(entry) = extract_rollout_user_entry(timestamp, payload)
-        {
-            user_entries.push(entry);
+        // Track totals before applying the date filter so repeated updates cannot
+        // bring usage from a previous day into this period.
+        let usage = token_usage.extract(timestamp, item_type, payload);
+        if !filter.matches(timestamp) {
+            continue;
+        }
+        if let Some(entry) = usage {
+            assistant_entries.push(entry);
+        }
+        if item_type == "response_item" {
+            user_entries.extend(extract_rollout_user_entries(timestamp, payload));
         }
         if let Some(entry) = extract_rollout_entry(timestamp, item_type, payload) {
             assistant_entries.push(entry);
@@ -185,31 +170,56 @@ fn collect_rollout_entries(
     (user_entries, assistant_entries)
 }
 
-fn extract_rollout_user_entry(timestamp: &str, payload: &Value) -> Option<ParsedUserEntry> {
+fn extract_rollout_user_entries(timestamp: &str, payload: &Value) -> Vec<ParsedUserEntry> {
     if payload.get("type").and_then(Value::as_str) != Some("message")
         || payload.get("role").and_then(Value::as_str) != Some("user")
     {
-        return None;
+        return Vec::new();
     }
-    let text = payload
-        .get("content")?
-        .as_array()?
-        .iter()
-        .filter(|block| block.get("type").and_then(Value::as_str) == Some("input_text"))
-        .filter_map(|block| block.get("text").and_then(Value::as_str))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return None;
+    let Some(content) = payload.get("content").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let Ok(timestamp) = DateTime::parse_from_rfc3339(timestamp) else {
+        return Vec::new();
+    };
+    let Some(timestamp) = unix_seconds_to_rfc3339(timestamp.timestamp()) else {
+        return Vec::new();
+    };
+    let metadata = payload
+        .get("internal_chat_message_metadata_passthrough")
+        .and_then(|value| value.get("content_item_metadata"))
+        .and_then(Value::as_array)
+        .filter(|metadata| metadata.len() == content.len());
+    let mut human = Vec::new();
+    let mut meta = Vec::new();
+    for (index, block) in content.iter().enumerate() {
+        if block.get("type").and_then(Value::as_str) != Some("input_text") {
+            continue;
+        }
+        let Some(text) = block.get("text").and_then(Value::as_str) else {
+            continue;
+        };
+        let origin = metadata
+            .and_then(|items| items[index].get("provenance"))
+            .and_then(|value| value.get("type"))
+            .and_then(Value::as_str);
+        if matches!(origin, Some("harness" | "agents_md")) {
+            meta.push(text);
+        } else {
+            human.push(text);
+        }
     }
-
-    // Use history's second precision and UTC spelling for user prompts.
-    let timestamp = DateTime::parse_from_rfc3339(timestamp).ok()?.timestamp();
-    Some(ParsedUserEntry {
-        timestamp: unix_seconds_to_rfc3339(timestamp)?,
-        text: trimmed.to_string(),
-    })
+    [(false, human), (true, meta)]
+        .into_iter()
+        .filter_map(|(is_meta, texts)| {
+            let text = texts.join("\n").trim().to_string();
+            (!text.is_empty()).then(|| ParsedUserEntry {
+                timestamp: timestamp.clone(),
+                text,
+                is_meta,
+            })
+        })
+        .collect()
 }
 
 fn empty_assistant_entry(timestamp: &str) -> ParsedAssistantEntry {
@@ -221,6 +231,73 @@ fn empty_assistant_entry(timestamp: &str) -> ParsedAssistantEntry {
         output_tokens: 0,
         file_paths: Vec::new(),
     }
+}
+
+#[derive(Default)]
+struct TokenUsageTracker {
+    previous_total: Option<(u64, u64)>,
+    response_ids: HashSet<String>,
+}
+
+impl TokenUsageTracker {
+    fn extract(
+        &mut self,
+        timestamp: &str,
+        item_type: &str,
+        payload: &Value,
+    ) -> Option<ParsedAssistantEntry> {
+        let (last, total) = match item_type {
+            "token_usage_record" => {
+                let last = read_token_usage(payload.get("usage")?)?;
+                if let Some(id) = payload.get("response_id").and_then(Value::as_str)
+                    && !self.response_ids.insert(id.to_string())
+                {
+                    return None;
+                }
+                (
+                    last,
+                    payload.get("thread_token_usage").and_then(read_token_usage),
+                )
+            }
+            "event_msg" if payload.get("type").and_then(Value::as_str) == Some("token_count") => {
+                let info = payload.get("info")?;
+                (
+                    read_token_usage(info.get("last_token_usage")?)?,
+                    info.get("total_token_usage").and_then(read_token_usage),
+                )
+            }
+            _ => return None,
+        };
+        let (input_tokens, output_tokens) = match (self.previous_total, total) {
+            (Some(previous), Some(current))
+                if current.0 >= previous.0 && current.1 >= previous.1 =>
+            {
+                (current.0 - previous.0, current.1 - previous.1)
+            }
+            // Older records may omit totals; a reset starts a new counter window.
+            _ => last,
+        };
+        self.previous_total = total;
+        (input_tokens != 0 || output_tokens != 0).then(|| ParsedAssistantEntry {
+            input_tokens,
+            output_tokens,
+            ..empty_assistant_entry(timestamp)
+        })
+    }
+}
+
+fn read_token_usage(value: &Value) -> Option<(u64, u64)> {
+    let usage = value.as_object()?;
+    Some((
+        usage
+            .get("input_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        usage
+            .get("output_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+    ))
 }
 
 fn extract_rollout_entry(
@@ -250,25 +327,6 @@ fn extract_rollout_entry(
             ..empty_assistant_entry(timestamp)
         }),
         // event_msg payloads
-        ("event_msg", Some("token_count")) => payload
-            .get("info")
-            .and_then(|value| value.get("last_token_usage"))
-            .and_then(Value::as_object)
-            .and_then(|usage| {
-                let input_tokens = usage
-                    .get("input_tokens")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0);
-                let output_tokens = usage
-                    .get("output_tokens")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0);
-                (input_tokens != 0 || output_tokens != 0).then(|| ParsedAssistantEntry {
-                    input_tokens,
-                    output_tokens,
-                    ..empty_assistant_entry(timestamp)
-                })
-            }),
         ("event_msg", Some("exec_command_end")) => {
             let file_paths = payload
                 .get("parsed_cmd")
@@ -366,6 +424,7 @@ fn collect_history_entries(
             .push(ParsedUserEntry {
                 timestamp,
                 text: trimmed.to_string(),
+                is_meta: false,
             });
     }
 
@@ -387,7 +446,7 @@ fn merge_rollout_user_entries(
         let closest = rollout_entries
             .iter()
             .enumerate()
-            .filter(|(_, entry)| entry.text == history_entry.text)
+            .filter(|(_, entry)| !entry.is_meta && entry.text == history_entry.text)
             .filter_map(|(index, entry)| {
                 let time = DateTime::parse_from_rfc3339(&entry.timestamp).ok()?;
                 Some((time.timestamp().abs_diff(history_time.timestamp()), index))
@@ -421,7 +480,7 @@ pub fn collect_sessions(codex_dir: &Path, filter: &DateFilter) -> Result<Vec<Raw
                 return None;
             }
             for entry in &mut user_entries {
-                entry.text = truncate(&entry.text, MAX_PROMPT_LEN);
+                entry.text = truncate_prompt(&entry.text);
             }
             user_entries.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
             let project = if project_path.is_empty() {
