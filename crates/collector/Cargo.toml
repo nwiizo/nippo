@@ -28,7 +28,7 @@ chrono = { version = "0.4", features = ["serde"] }
 iana-time-zone = "0.1"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
-rusqlite = "0.41"
+rusqlite = "0.42"
 ratatui = { version = "0.30", optional = true, default-features = false, features = ["crossterm", "layout-cache", "underline-color"] }
 
 [dev-dependencies]
